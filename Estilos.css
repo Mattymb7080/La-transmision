@@ -67,6 +67,17 @@ body {
 .device-mobile #game-header .btn { padding: 0.5rem 0.75rem; font-size: 0.8rem; }
 .device-mobile #player-state-button, .device-mobile #rulo-hud { font-size: 0.8rem; padding: 0.5rem; }
 .device-mobile .modal { width: 95%; padding: 1.5rem; }
+/* NUEVO: Ajustes de layout en móvil para notificaciones */
+.device-mobile #narrative-container { flex-direction: column; }
+.device-mobile #notification-column { 
+    width: 100%; 
+    max-width: 100%; 
+    height: 30%; /* 30% de la altura para notificaciones */
+    border-left: none;
+    border-top: 2px solid var(--theme-sfx); /* Borde naranja arriba */
+}
+.device-mobile #main-column { height: 70%; }
+
 
 /* --- Fin Estilos de Dispositivo --- */
 
@@ -311,12 +322,15 @@ body {
 
 /* --- Notificaciones (Columna Derecha) --- */
 #notification-column {
-    border-left: 2px solid var(--theme-text-dim);
-    /* MODIFICADO: Asegura que tenga altura completa y scroll */
+    /* MODIFICADO: Borde naranja como pidió el usuario */
+    border-left: 2px solid var(--theme-sfx); 
     height: 100%;
     overflow: hidden;
 }
-.theme-blanco #notification-column { border-left-color: #d4d4d8; }
+.theme-blanco #notification-column { 
+    /* MODIFICADO: Borde naranja también en tema blanco */
+    border-left-color: var(--theme-sfx); 
+}
 
 #notification-log {
     font-size: 0.9rem;
@@ -512,7 +526,26 @@ body {
 .device-btn { padding: 1rem 1.5rem; font-size: 1.8rem; margin: 0 1rem; transition: all 0.3s ease; }
 .device-btn:hover { transform: scale(1.05); box-shadow: var(--theme-glow); }
 
-/* --- NUEVO: Minijuego de Calma --- */
+/* --- NUEVO: Medidor de Probabilidad (HUD) --- */
+#monster-prob-hud {
+    font-size: 0.9rem;
+    margin-left: 0.5rem;
+    border: 1px solid var(--theme-scare); /* Borde rojo */
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    color: var(--theme-scare); /* Texto rojo */
+}
+#monster-prob-value {
+    font-size: 1.1rem; /* "grande" */
+    color: var(--theme-scare); /* "roja" */
+    font-weight: bold;
+}
+.theme-blanco #monster-prob-hud {
+    background-color: #fef2f2;
+    border-color: #f87171;
+}
+
+/* --- MODIFICADO: Minijuego de Calma --- */
 #calm-minigame {
     position: absolute;
     top: 50%;
@@ -530,6 +563,24 @@ body {
     font-family: 'IBM Plex Mono', monospace;
     text-align: center;
 }
+
+/* NUEVO: Área de tap para minijuego de calma en móvil */
+#calm-tap-area {
+    cursor: pointer;
+    padding: 1rem 0;
+}
+.device-mobile #calm-tap-area {
+    /* En móvil, le damos un fondo para que sea obvio que se puede tocar */
+    background-color: #222;
+    border-radius: 4px;
+    border: 1px solid var(--theme-text-dim);
+    padding: 1.5rem 0.5rem; /* Más área de toque */
+}
+.theme-blanco.device-mobile #calm-tap-area {
+    background-color: #e5e5e5;
+    border-color: #a1a1aa;
+}
+
 #calm-bar {
     width: 100%;
     height: 2.5rem;
@@ -538,6 +589,8 @@ body {
     border-radius: 4px;
     position: relative;
     overflow: hidden;
+    /* El clic debe registrarse en el 'calm-tap-area' */
+    pointer-events: none; 
 }
 #calm-target {
     position: absolute;
@@ -557,4 +610,112 @@ body {
     height: 100%;
     background-color: var(--theme-text-bright);
     box-shadow: 0 0 5px #fff;
+}
+
+/* --- NUEVO: Minijuego de Fusibles --- */
+#fuse-timer {
+    font-family: 'IBM Plex Mono', monospace;
+    text-shadow: 0 0 8px var(--theme-scare);
+}
+
+.hint-box {
+    background-color: #1a1a1a;
+    border: 1px dashed var(--theme-sfx); /* Borde naranja/ámbar */
+    padding: 0.75rem 1rem;
+    color: var(--theme-sfx); /* Texto naranja/ámbar */
+    font-family: 'IBM Plex Mono', monospace;
+    border-radius: 4px;
+}
+.theme-blanco .hint-box {
+    background-color: #fffbeb;
+    border-color: #f59e0b;
+    color: #b45309;
+}
+
+#fuse-options-container .btn-fuse {
+    flex-basis: 30%; /* Para que quepan 3 por fila */
+    flex-grow: 1;
+    padding: 0.75rem;
+    font-size: 1rem;
+    font-weight: bold;
+    border: 2px solid var(--theme-text-dim);
+    background-color: #1a1a1a;
+    color: var(--theme-text);
+    cursor: pointer;
+    border-radius: 6px;
+    text-align: center;
+}
+#fuse-options-container .btn-fuse:hover {
+    background-color: var(--theme-text-dim);
+    border-color: var(--theme-text);
+    color: var(--theme-text-bright);
+}
+/* Colores específicos de fusibles (el JS deberá añadir estas clases) */
+.btn-fuse.fuse-red { border-color: #ef4444; color: #ef4444; }
+.btn-fuse.fuse-red:hover { background-color: #450a0a; border-color: #ef4444; color: #fca5a5; }
+.btn-fuse.fuse-blue { border-color: #3b82f6; color: #3b82f6; }
+.btn-fuse.fuse-blue:hover { background-color: #1e3a8a; border-color: #3b82f6; color: #bfdbfe; }
+.btn-fuse.fuse-green { border-color: #22c55e; color: #22c55e; }
+.btn-fuse.fuse-green:hover { background-color: #14532d; border-color: #22c55e; color: #bbf7d0; }
+.btn-fuse.fuse-yellow { border-color: #eab308; color: #eab308; }
+.btn-fuse.fuse-yellow:hover { background-color: #713f12; border-color: #eab308; color: #fef08a; }
+.btn-fuse.fuse-white { border-color: #e5e5e5; color: #e5e5e5; }
+.btn-fuse.fuse-white:hover { background-color: #52525b; border-color: #e5e5e5; color: #ffffff; }
+/* Estilo para fusibles seleccionados en la secuencia */
+.btn-fuse.fuse-selected { 
+    background-color: var(--theme-text-dim); 
+    color: var(--theme-text-bright);
+    border-color: var(--theme-text);
+}
+
+
+.sequence-box {
+    min-height: 3.5rem;
+    background-color: #0a0a0a;
+    border: 1px solid var(--theme-text-dim);
+    border-radius: 4px;
+    padding: 0.75rem 1rem;
+    font-size: 1.1rem;
+    color: var(--theme-text-bright);
+    letter-spacing: 2px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap; /* Para que los fusibles pasen a la siguiente línea */
+    gap: 0.5rem; /* Espacio entre fusibles en la caja */
+}
+.theme-blanco .sequence-box {
+    background-color: #f4f4f5;
+    border-color: #a1a1aa;
+}
+/* Estilo para los fusibles dentro de la caja de secuencia */
+.sequence-box .btn-fuse {
+    flex-grow: 0;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.9rem;
+}
+
+
+/* --- NUEVO: Overlay de Muerte --- */
+#death-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    /* Efecto de mancha de sangre */
+    background: radial-gradient(circle at 50% 50%, rgba(153, 27, 27, 0.8) 20%, rgba(128, 20, 20, 0.5) 70%, rgba(0,0,0,0.0) 100%);
+    z-index: 500;
+    opacity: 0;
+    pointer-events: none;
+    /* La animación será controlada por JS añadiendo una clase */
+}
+/* Clase que añadirá JS para activar la animación */
+.player-dying {
+    animation: fade-in-out-blood 4s ease-out forwards;
+}
+@keyframes fade-in-out-blood {
+    0% { opacity: 0; }
+    30% { opacity: 1; }
+    80% { opacity: 1; }
+    100% { opacity: 0; }
 }
