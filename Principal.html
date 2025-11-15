@@ -84,6 +84,10 @@
                     <div id="player-state-button" class="text-sm">
                         ESTADO: <span id="player-state" class="font-bold life-ok">CALMADO</span>
                     </div>
+                    <!-- NUEVO: Medidor de Probabilidad de Monstruo -->
+                    <div id="monster-prob-hud" class="hidden">
+                        PROB: <span id="monster-prob-value" class="font-bold">0%</span>
+                    </div>
                     <div id="rulo-hud" class="hidden">
                         RULO: <span id="rulo-state" class="font-bold life-ok">OK</span>
                     </div>
@@ -106,6 +110,10 @@
 
                 <!-- Columna Derecha (Notificaciones) - MODIFICADO: 'hidden' eliminado -->
                 <div id="notification-column" class="w-1/3 max-w-sm flex flex-col">
+                    <!-- NUEVO: Contenedor de Probabilidad (solo visible si Rulo acompaña) -->
+                    <div id="rulo-prob-header" class="hidden p-2 text-center">
+                        <!-- El JS llenará esto -->
+                    </div>
                     <div id="notification-log" class="flex-grow p-2 overflow-y-auto">
                         <!-- Notificaciones de monstruos y eventos aquí -->
                     </div>
@@ -155,6 +163,7 @@
             <h2 class="text-2xl font-bold mb-6">[ ESTADO DE RULO ]</h2>
             <ul id="rulo-stats-list" class="stats-list">
                 <!-- Stats se llenan dinámicamente -->
+                <!-- El JS (Logica.js) necesita ser actualizado para mostrar Vida, Hambre y Agua aquí -->
             </ul>
             <button id="close-rulo-stats-btn" class="btn w-full">Cerrar</button>
         </div>
@@ -169,16 +178,48 @@
             </div>
         </div>
         
-        <!-- NUEVO: Minijuego de Calma -->
+        <!-- MODIFICADO: Minijuego de Calma (Ansiedad) -->
         <div id="calm-minigame" class="hidden">
             <h3 class="text-2xl font-bold mb-4">MANTÉN LA CALMA</h3>
-            <p class="mb-6">Presiona [ESPACIO] en la zona verde</p>
-            <div id="calm-bar">
-                <div id="calm-target"></div>
-                <div id="calm-marker"></div>
+            <p class="mb-6">Presiona [ESPACIO] o TOCA en la zona verde</p>
+            
+            <!-- MODIFICADO: Añadido wrapper click/tap para móvil -->
+            <!-- La función checkCalmHit() debe existir en Logica.js -->
+            <div id="calm-tap-area" onclick="checkCalmHit()">
+                <div id="calm-bar">
+                    <div id="calm-target"></div>
+                    <div id="calm-marker"></div>
+                </div>
             </div>
+            
             <button id="calm-cancel-btn" class="btn btn-secondary text-lg mt-6">Cancelar</button>
         </div>
+        
+        <!-- NUEVO: Minijuego de Fusibles -->
+        <div id="fuse-minigame-modal" class="modal hidden">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-2xl font-bold">[ RECALIBRANDO FUSIBLES ]</h2>
+                <span id="fuse-timer" class="text-3xl font-bold" style="color: var(--theme-scare);">0.0</span>
+            </div>
+            
+            <div id="fuse-hint-box" class="hint-box mb-4">
+                PISTA: Cargando...
+            </div>
+            
+            <div id="fuse-options-container" class="flex flex-wrap gap-2 mb-4">
+                <!-- Botones de fusibles (ej: Azul, Rojo) se añadirán aquí por JS -->
+            </div>
+            
+            <div id="fuse-sequence-display" class="sequence-box mb-6">
+                ...
+            </div>
+            
+            <div class="flex justify-between gap-4">
+                <button id="fuse-confirm-btn" class="btn btn-easy w-1/2">CONFIRMAR</button>
+                <button id="fuse-clear-btn" class="btn btn-secondary w-1/2">LIMPIAR</button>
+            </div>
+        </div>
+
         
         <!-- Icono de guardado -->
         <div id="save-icon">💾</div>
@@ -187,10 +228,14 @@
         <button id="reaction-btn">
             <!-- El temporizador puede ir aquí -->
         </button>
+        
+        <!-- NUEVO: Overlay de Muerte -->
+        <div id="death-overlay" class="hidden"></div>
 
     </div>
 
     <!-- Enlace al archivo JavaScript externo -->
+    <!-- (No modificar Logica.js según la instrucción) -->
     <script src="Logica.js"></script>
 </body>
 </html>
