@@ -6,22 +6,25 @@ const $$ = (selector) => document.querySelectorAll(selector);
 // Claves de LocalStorage
 const SAVE_KEY_CURRENT = 'transmision_current';
 const SAVE_KEY_CHECKPOINT = 'transmision_checkpoint';
-const SAVE_KEY_DEVICE = 'transmision_device'; // Para guardar la elección del dispositivo
+const SAVE_KEY_DEVICE = 'transmision_device';
+const SAVE_KEY_THEME = 'transmision_theme';
 
 // Pantallas
 const mainMenu = $('#main-menu');
 const settingsScreen = $('#settings-screen');
+const difficultySelectScreen = $('#difficulty-select-screen'); // NUEVO
 const gameScreen = $('#game-screen');
 const deviceSelectOverlay = $('#device-select-overlay');
 
 // Elementos del juego
 const narrativeLog = $('#narrative-log');
+const notificationLog = $('#notification-log'); // NUEVO
 const narrativeContainer = $('#narrative-container');
 const optionsContainer = $('#options-container');
 const locationMenu = $('#location-menu');
 const appContainer = $('#app');
-const playerStateButton = $('#player-state-button'); // Botón clicable
-const playerStateUI = $('#player-state'); // El span de texto
+const playerStateButton = $('#player-state-button');
+const playerStateUI = $('#player-state');
 const ruloHud = $('#rulo-hud');
 const ruloStateUI = $('#rulo-state');
 const noiseBar = $('#noise-bar');
@@ -37,6 +40,8 @@ const playerStatsModal = $('#player-stats-modal');
 const playerStatsList = $('#player-stats-list');
 const ruloStatsModal = $('#rulo-stats-modal');
 const ruloStatsList = $('#rulo-stats-list');
+const confirmModal = $('#confirm-modal'); // NUEVO
+const calmMinigame = $('#calm-minigame'); // NUEVO
 
 // Estado del juego
 let gameState = {};
@@ -57,10 +62,20 @@ let reactionTimerInterval = null;
 let reactionWindowMs = 0;
 let reactionStartTime = 0;
 
+// Estado del Minijuego de Calma
+let calmGameActive = false;
+let calmGameInterval = null;
+let calmGameTimeout = null;
+let calmMarkerPos = 0;
+let calmMarkerDir = 1;
+let calmMarkerSpeed = 2.5; // % por frame
+let calmTargetLeft = 0;
+let calmTargetWidth = 0;
+
 // Parámetros del Juego
-const NOISE_DECAY_PER_SECOND = 1; // Reducido para que el puzzle sea más útil
-const RULO_ALERT_COOLDOWN = 30; // 30 segundos
-const RULO_ALERT_BASE_PROB = 0.2; // 20% base
+const NOISE_DECAY_PER_SECOND = 1;
+const RULO_ALERT_COOLDOWN = 30;
+const RULO_ALERT_BASE_PROB = 0.2;
 const RULO_ALERT_SKILL_FACTOR = 0.6;
 
 // Límite de Búsquedas (por ID de sala)
@@ -72,7 +87,6 @@ const SEARCH_LIMITS = {
 };
 
 // Definición de temas de color
-// MODIFICADO: Añadidos colores de estado a cada tema
 const themes = {
     green: { 
         name: 'theme-green',
@@ -103,26 +117,18 @@ const themes = {
 
 // --- GESTIÓN DE ESTADOS (Porcentajes) ---
 
-/**
- * Modifica una estadística del jugador.
- * @param {string} stat - 'vida', 'ansiedad', 'hambre', 'agua'
- * @param {number} amount - El valor a sumar (puede ser negativo)
- */
 function updatePlayerStat(stat, amount) {
     if (!gameState.playerStats || gameState.playerStats[stat] === undefined) return;
     
     let currentValue = gameState.playerStats[stat];
     let newValue = currentValue + amount;
     
-    // Lógica de Hambre/Agua (suben lento, bajan con items)
     if (stat === 'hambre' || stat === 'agua') {
         newValue = Math.max(0, Math.min(100, newValue));
     }
-    // Lógica de Ansiedad (sube con sustos, baja con items o calma)
     else if (stat === 'ansiedad') {
         newValue = Math.max(0, Math.min(100, newValue));
     }
-    // Lógica de Vida (baja con daño, sube con items)
     else if (stat === 'vida') {
         newValue = Math.max(0, Math.min(100, newValue));
     }
@@ -131,28 +137,15 @@ function updatePlayerStat(stat, amount) {
     renderAllUI();
 }
 
-/**
- * Modifica la vida de Rulo.
- * @param {number} amount - El valor a sumar (puede ser negativo)
- */
 function updateRuloHP(amount) {
     let newValue = gameState.ruloHP + amount;
     gameState.ruloHP = Math.max(0, Math.min(100, newValue));
-    
-    // Lógica de Muerte de Rulo (placeholder)
-    if (gameState.ruloHP <= 0 && gameState.flags.rulo_joins) {
-        // ... (lógica de muerte)
-    }
     renderAllUI();
 }
 
-/**
- * Obtiene un resumen de texto del peor estado del jugador.
- * @returns {string} - "CALMADO", "ANSIOSO", "HAMBRIENTO", "HERIDO"
- */
 function getPlayerStateSummary() {
     const stats = gameState.playerStats;
-    if (!stats) return "CALMADO"; // Guard contra estado no inicializado
+    if (!stats) return "CALMADO";
     
     if (stats.vida <= 40) return "HERIDO";
     if (stats.vida <= 70) return "DAÑADO";
@@ -163,13 +156,9 @@ function getPlayerStateSummary() {
     return "CALMADO";
 }
 
-/**
- * Obtiene la clase CSS para el peor estado del jugador.
- * @returns {string} - "life-ok", "life-anxious", "life-low", "life-danger"
- */
 function getPlayerStateClass() {
     const stats = gameState.playerStats;
-    if (!stats) return "life-ok"; // Guard contra estado no inicializado
+    if (!stats) return "life-ok";
     
     if (stats.vida <= 40) return "life-danger"; // Rojo
     if (stats.vida <= 70) return "life-low"; // Naranja
@@ -196,43 +185,20 @@ function loadGameState() {
         if (savedData) {
             gameState = JSON.parse(savedData);
             
-            // --- CORRECCIÓN DE ERROR Y ROBUSTEZ ---
-            // Añade valores por defecto para propiedades que podrían faltar en un guardado antiguo
-            
-            if (!gameState.unlockedLocations) {
-                gameState.unlockedLocations = ['sala_vigilancia'];
-            }
-            if (!gameState.playerStats) {
-                gameState.playerStats = { vida: 100, ansiedad: 0, hambre: 0, agua: 0 };
-            }
-            if (gameState.ruloHP === undefined) {
-                gameState.ruloHP = 100;
-            }
+            // --- Corrección de estado guardado antiguo ---
+            if (!gameState.unlockedLocations) gameState.unlockedLocations = ['sala_vigilancia'];
+            if (!gameState.playerStats) gameState.playerStats = { vida: 100, ansiedad: 0, hambre: 0, agua: 0 };
+            if (gameState.ruloHP === undefined) gameState.ruloHP = 100;
             if (!gameState.roomNoise) {
-                // Transfiere el ruido global antiguo (si existe) al nuevo sistema por salas
                 const oldNoise = gameState.noise || 0;
-                gameState.roomNoise = {
-                    'start': 0, 'sala_vigilancia': oldNoise, 'pasillo_este_hub': 0, 'almacen': 0, 
-                    'oficina_seguridad': 0, 'sotano': 0, 'panel_pasillo': 0, 'revisar_radio': 0, 
-                    'buscar_salida': 0, 'parte1_fin_exito': 0, 'eco_cerca': 0, 
-                    'pasillo_este_intro': 0, 'abrir_mochila': 0, 'puzzle_ruido_intro': 0, 
-                    'puzzle_fusibles_1': 0, 'ajustes_dispositivo': 0
-                };
-                delete gameState.noise; // Limpia la propiedad antigua
+                gameState.roomNoise = { 'sala_vigilancia': oldNoise, 'pasillo_este_hub': 0, 'almacen': 0, 'oficina_seguridad': 0, 'sotano': 0 };
+                delete gameState.noise;
             }
-            if (!gameState.roomCounters) {
-                gameState.roomCounters = {
-                    'sala_vigilancia': 0, 'pasillo_este_hub': 0, 'almacen': 0, 'oficina_seguridad': 0
-                };
-            }
-            // MODIFICADO: Asegurarse de que 'location' exista y no sea 'start'
-            if (!gameState.location || gameState.location === 'start') {
-                gameState.location = 'sala_vigilancia';
-            }
-            if (!gameState.previousLocation) {
-                gameState.previousLocation = 'sala_vigilancia';
-            }
-            // --- Fin de la corrección ---
+            if (!gameState.roomCounters) gameState.roomCounters = { 'sala_vigilancia': 0, 'pasillo_este_hub': 0, 'almacen': 0, 'oficina_seguridad': 0 };
+            if (!gameState.location || gameState.location === 'start') gameState.location = 'sala_vigilancia';
+            if (!gameState.previousLocation) gameState.previousLocation = 'sala_vigilancia';
+            if (!gameState.difficulty) gameState.difficulty = 'medium'; // NUEVO: Añade dificultad por defecto
+            // --- Fin corrección ---
             
             return true;
         }
@@ -252,19 +218,36 @@ function saveCheckpoint() {
     }
 }
 
+// MODIFICADO: Corregido bug que reiniciaba el juego
 function loadCheckpoint() {
     try {
         const savedData = localStorage.getItem(SAVE_KEY_CHECKPOINT);
         if (savedData) {
             gameState = JSON.parse(savedData);
-            saveGameState();
-            startGameFromMenu(true); // MODIFICADO: Llama a la nueva función
+            saveGameState(); // Sobrescribe el guardado actual con el del checkpoint
+            
+            // Reinicia el juego manualmente con el estado cargado
+            stopGameLoop();
+            showScreen('game');
+            renderAllUI();
+            showNode(gameState.location); 
+            startGameLoop();
         } else {
             console.warn("No hay punto de guardado.");
+            logNotification("No se encontró punto de guardado.", "info");
         }
     } catch (e) {
         console.error("Error cargando checkpoint:", e);
     }
+}
+
+// NUEVO: Reseteo completo de datos
+function resetAllData() {
+    localStorage.removeItem(SAVE_KEY_CURRENT);
+    localStorage.removeItem(SAVE_KEY_CHECKPOINT);
+    localStorage.removeItem(SAVE_KEY_DEVICE);
+    localStorage.removeItem(SAVE_KEY_THEME);
+    location.reload(); // Recarga la página para un reinicio limpio
 }
 
 function flashSaveIcon() {
@@ -275,35 +258,24 @@ function flashSaveIcon() {
 }
 
 function resetGame() {
+    // Nota: Esta función NO borra dispositivo ni tema, solo el progreso.
     localStorage.removeItem(SAVE_KEY_CURRENT);
     localStorage.removeItem(SAVE_KEY_CHECKPOINT);
-    // NOTA: No borramos SAVE_KEY_DEVICE
     
     gameState = {
-        location: 'sala_vigilancia', // MODIFICADO: Empezar en la sala
-        previousLocation: 'sala_vigilancia', // MODIFICADO
+        location: 'sala_vigilancia',
+        previousLocation: 'sala_vigilancia',
+        difficulty: 'medium', // Dificultad por defecto
         inventory: {},
         roomNoise: {
-            'start': 0, 'sala_vigilancia': 0, 'pasillo_este_hub': 0, 'almacen': 0, 
-            'oficina_seguridad': 0, 'sotano': 0, 'panel_pasillo': 0, 'revisar_radio': 0, 
-            'buscar_salida': 0, 'parte1_fin_exito': 0, 'eco_cerca': 0, 
-            'pasillo_este_intro': 0, 'abrir_mochila': 0, 'puzzle_ruido_intro': 0, 
-            'puzzle_fusibles_1': 0, 'ajustes_dispositivo': 0
+            'sala_vigilancia': 0, 'pasillo_este_hub': 0, 'almacen': 0, 
+            'oficina_seguridad': 0, 'sotano': 0
         },
-        playerStats: {
-            vida: 100,
-            ansiedad: 0,
-            hambre: 0,
-            agua: 0
-        },
+        playerStats: { vida: 100, ansiedad: 0, hambre: 0, agua: 0 },
         ruloHP: 100,
         flags: {
-            rulo_awake: false,
-            rulo_awake_calm: false,
-            radio_pista: false,
-            panel_abierto: false,
-            rulo_talked: false,
-            rulo_joins: false,
+            rulo_awake: false, rulo_awake_calm: false, radio_pista: false,
+            panel_abierto: false, rulo_talked: false, rulo_joins: false,
             backpack_enabled: false
         },
         unlockedLocations: ['sala_vigilancia'],
@@ -314,46 +286,36 @@ function resetGame() {
         ruloAlertActive: false,
         ruloAlertSkill: 0.7,
         roomCounters: {
-            'sala_vigilancia': 0,
-            'pasillo_este_hub': 0,
-            'almacen': 0,
-            'oficina_seguridad': 0
+            'sala_vigilancia': 0, 'pasillo_este_hub': 0, 'almacen': 0, 'oficina_seguridad': 0
         }
     };
-    saveGameState(); // Guarda el estado limpio
+    saveGameState();
 }
 
 // --- NAVEGACIÓN Y MENÚS ---
 
-// MODIFICADO: Solución robusta para ocultar/mostrar pantallas
 function showScreen(screenId) {
-    // Ocultar todas las pantallas principales
     mainMenu.style.display = 'none';
     settingsScreen.style.display = 'none';
+    difficultySelectScreen.style.display = 'none'; // NUEVO
     gameScreen.style.display = 'none';
     deviceSelectOverlay.style.display = 'none';
     
     const gameMenuBtn = $('#game-back-to-menu-btn');
     
-    if (screenId === 'main') {
-        mainMenu.style.display = 'flex';
-        if (gameMenuBtn) gameMenuBtn.classList.add('hidden');
-    }
-    if (screenId === 'settings') {
-        settingsScreen.style.display = 'flex';
-        if (gameMenuBtn) gameMenuBtn.classList.add('hidden');
-    }
-    if (screenId === 'game') {
-        gameScreen.style.display = 'flex';
-        if (gameMenuBtn) gameMenuBtn.classList.remove('hidden');
-    }
-    if (screenId === 'device_select') {
-        deviceSelectOverlay.style.display = 'flex';
-        if (gameMenuBtn) gameMenuBtn.classList.add('hidden');
+    if (screenId === 'main') mainMenu.style.display = 'flex';
+    if (screenId === 'settings') settingsScreen.style.display = 'flex';
+    if (screenId === 'difficulty_select') difficultySelectScreen.style.display = 'flex'; // NUEVO
+    if (screenId === 'game') gameScreen.style.display = 'flex';
+    if (screenId === 'device_select') deviceSelectOverlay.style.display = 'flex';
+    
+    // Controla el botón de "MENÚ" dentro del juego
+    if (gameMenuBtn) {
+        if (screenId === 'game') gameMenuBtn.classList.remove('hidden');
+        else gameMenuBtn.classList.add('hidden');
     }
 }
 
-// MODIFICADO: Función de tema actualizada
 function changeTheme(themeName) {
     const theme = themes[themeName];
     if (!theme) return;
@@ -364,26 +326,18 @@ function changeTheme(themeName) {
     root.style.setProperty('--theme-text-dim', theme.dim);
     root.style.setProperty('--theme-text-bright', theme.bright);
     root.style.setProperty('--theme-glow', theme.glow);
-    
-    // Nuevas propiedades de tema
     root.style.setProperty('--theme-sfx', theme.sfx);
     root.style.setProperty('--theme-scare', theme.scare);
     root.style.setProperty('--theme-calm', theme.calm);
     root.style.setProperty('--theme-agitated', theme.agitated);
     root.style.setProperty('--theme-hurt', theme.hurt);
     
-    // Quitar clases de tema antiguas del body
-    Object.values(themes).forEach(t => {
-        document.body.classList.remove(t.name);
-    });
-    // Añadir clase de tema actual
+    Object.values(themes).forEach(t => document.body.classList.remove(t.name));
     document.body.classList.add(theme.name);
     
-    // Guardar tema elegido
-    localStorage.setItem('transmision_theme', themeName);
+    localStorage.setItem(SAVE_KEY_THEME, themeName);
 }
 
-// --- Lógica de Selección de Dispositivo ---
 function selectDevice(type) {
     const body = document.body;
     body.classList.remove('device-pc', 'device-mobile');
@@ -398,43 +352,59 @@ function selectDevice(type) {
         $('#backpack-btn').textContent = 'MOCHILA [M]'; 
     }
     
-    // Ocultar overlay y mostrar menú principal
-    // *** SOLUCIÓN ROBUSTA ***
     deviceSelectOverlay.style.display = 'none'; 
-    
-    // MODIFICADO: Mostrar el menú principal, no iniciar el juego
     showScreen('main'); 
 }
 
-// MODIFICADO: Nueva función de inicio de juego
-function startGameFromMenu(forceReload = false) {
+// MODIFICADO: Maneja el flujo de "Continuar" vs "Nuevo Juego" (con dificultad)
+function startGameFromMenu() {
     stopGameLoop();
     let isContinue = $('#play-btn').textContent === 'Continuar';
     
-    if (!forceReload && isContinue && loadGameState()) {
-        // Estado cargado
+    if (isContinue && loadGameState()) {
+        // --- Cargar Partida ---
+        showScreen('game');
+        renderAllUI();
+        showNode(gameState.location);
+        startGameLoop();
     } else {
-        // Empezar nueva
+        // --- Nueva Partida ---
+        // Borra el estado antiguo (si lo hay) y muestra la selección de dificultad
         resetGame();
+        showScreen('difficulty_select');
     }
+}
+
+// NUEVO: Inicia el juego después de elegir dificultad
+function selectDifficulty(difficulty) {
+    resetGame(); // Empieza un estado limpio
+    gameState.difficulty = difficulty;
+    saveGameState(); // Guarda el estado inicial con la dificultad
     
+    // Inicia el juego
     showScreen('game');
     renderAllUI();
-    showNode(gameState.location); // Muestra 'sala_vigilancia' (nuevo) o el guardado
+    showNode(gameState.location); // Muestra 'sala_vigilancia'
     startGameLoop();
 }
 
 function goToMenu() {
     stopGameLoop();
-    saveGameState();
+    if (gameScreen.style.display === 'flex') {
+        saveGameState(); // Solo guarda si salimos *desde* el juego
+    }
     showScreen('main');
+    // Actualiza el botón de "Jugar/Continuar"
     if (localStorage.getItem(SAVE_KEY_CURRENT)) {
         $('#play-btn').textContent = 'Continuar';
+    } else {
+        $('#play-btn').textContent = 'Jugar';
     }
 }
 
 function resumeGame() {
-    showNode(gameState.location);
+    // Esta función ya no es necesaria con el nuevo flujo del monstruo
+    // showNode(gameState.location);
     startGameLoop();
 }
 
@@ -443,19 +413,20 @@ function resumeGame() {
 function startGameLoop() {
     if (gameLoopInterval) clearInterval(gameLoopInterval);
     gameLoopInterval = setInterval(() => {
-        if (gameState.monsterPresent || gameState.monsterApproaching || !gameState.playerStats) {
-            return; // No hacer nada si hay monstruo o si el estado no está listo
+        // MODIFICADO: No pausar si el monstruo se acerca, solo si ataca
+        if (gameState.monsterPresent || !gameState.playerStats) {
+            return;
         }
         
-        // Decaimiento de Ruido (solo en la sala actual)
+        // Decaimiento de Ruido
         const currentRoomNoise = gameState.roomNoise[gameState.location] || 0;
         if (currentRoomNoise > 0) {
-            changeRoomNoise(gameState.location, -NOISE_DECAY_PER_SECOND, true); // true = decay
+            changeRoomNoise(gameState.location, -NOISE_DECAY_PER_SECOND, true);
         }
         
-        // Aumento de Hambre/Agua (muy lento)
-        updatePlayerStat('hambre', 0.05); // Ajustar este valor
-        updatePlayerStat('agua', 0.08); // Ajustar este valor
+        // Aumento de Hambre/Agua
+        updatePlayerStat('hambre', 0.05);
+        updatePlayerStat('agua', 0.08);
         
         // Cooldown de Rulo
         if (gameState.ruloAlertCooldown > 0) {
@@ -463,10 +434,14 @@ function startGameLoop() {
         }
         
         checkRuloAlert();
-        checkMonsterSpawn();
+        
+        // Solo chequear aparición si el monstruo no se está acercando
+        if (!gameState.monsterApproaching) {
+            checkMonsterSpawn();
+        }
         
         renderNoiseBar();
-        renderPlayerState(); // Para que Hambre/Agua actualicen el estado
+        renderPlayerState();
         
     }, 1000);
 }
@@ -537,7 +512,7 @@ function typeSentence() {
 }
 
 function skipTyping() {
-    if (!isTyping) return; // MODIFICADO: Solo skipea si está tipeando
+    if (!isTyping) return;
 
     clearTimeout(charTimeout);
     clearTimeout(sentenceTimeout);
@@ -554,7 +529,7 @@ function skipTyping() {
     }
     
     currentSentenceIndex++;
-    typeSentence(); // Avanza a la siguiente o finaliza
+    typeSentence();
 }
 
 
@@ -576,20 +551,24 @@ function finishTyping(internalSkip = false) {
 
 // --- LÓGICA DE NODOS Y OPCIONES ---
 
+// MODIFICADO: para manejar nodos de interacción sin cambiar la ubicación (ruido)
 function showNode(nodeId) {
-    // No guardar "nodos de puzzle" como ubicación anterior
-    if (nodeId.startsWith('puzzle_') || nodeId === 'ajustes_dispositivo') {
-        // No actualizar previousLocation
-    } else {
-        gameState.previousLocation = gameState.location;
-    }
-    gameState.location = nodeId;
-    
     const node = GAME_CONTENT[nodeId];
     if (!node) {
         console.error(`Nodo no encontrado: ${nodeId}`);
         return;
     }
+
+    // Si es un Hub (sala principal), actualiza la ubicación y el checkpoint
+    if (node.isLocationHub) {
+        gameState.previousLocation = gameState.location;
+        gameState.location = nodeId;
+        if (node.isCheckpoint) {
+            saveCheckpoint();
+        }
+    }
+    // Si es un nodo de interacción (p.ej. 'revisar_radio'),
+    // no cambiamos gameState.location, así que el ruido sigue siendo el de la sala.
 
     optionsContainer.innerHTML = '';
     
@@ -605,23 +584,20 @@ function showNode(nodeId) {
         gameEffects[node.effect.name](node.effect.params);
     }
     
-    // Actualizar UI de ruido para la nueva sala
-    renderNoiseBar();
+    renderNoiseBar(); // Renderiza el ruido de la sala (gameState.location)
     
     typeText(node.text, true, () => {
-        renderOptions(node.options);
+        // Pasamos el nodeId actual para que las opciones sepan dónde están
+        renderOptions(node.options, nodeId);
     });
     
     if (node.isLocationHub) {
-        renderLocations();
-    }
-    
-    if (node.isCheckpoint) {
-        saveCheckpoint();
+        renderLocations(); // Solo actualiza los botones de sala si estamos en un hub
     }
 }
 
-function renderOptions(options) {
+// MODIFICADO: Acepta nodeId
+function renderOptions(options, nodeId) {
     optionsContainer.innerHTML = '';
     if (!options || options.length === 0) return;
     
@@ -642,13 +618,17 @@ function renderOptions(options) {
         
         optEl.textContent = `[ ${optionText} ]`;
         
-        optEl.onclick = () => handleOptionClick(option);
+        // MODIFICADO: Pasa el nodeId al handler
+        optEl.onclick = () => handleOptionClick(option, nodeId);
         optionsContainer.appendChild(optEl);
     });
+    // Scroll forzoso para asegurar que se vean las opciones
     narrativeLog.scrollTop = narrativeLog.scrollHeight;
+    optionsContainer.scrollIntoView({ behavior: 'smooth', block: 'end' });
 }
 
-function handleOptionClick(option) {
+// MODIFICADO: Acepta nodeId
+function handleOptionClick(option, nodeId) {
     optionsContainer.innerHTML = '';
     
     if (option.countsSearch) {
@@ -657,7 +637,8 @@ function handleOptionClick(option) {
         
         if (count >= max) {
             typeText("No queda nada más por aquí.", true, () => {
-                renderOptions(GAME_CONTENT[gameState.location].options);
+                // Vuelve a renderizar las opciones del nodo actual
+                renderOptions(GAME_CONTENT[nodeId].options, nodeId);
             });
             return;
         }
@@ -704,11 +685,10 @@ function renderLocations() {
         { id: 'sotano', name: 'Sótano' },
     ];
     
-    // CORRECCIÓN DE ERROR: Añadir guardia por si unlockedLocations no existe
     const unlocked = gameState.unlockedLocations || ['sala_vigilancia'];
 
     locations.forEach(loc => {
-        const isLocked = !unlocked.includes(loc.id); // Usar la variable 'unlocked'
+        const isLocked = !unlocked.includes(loc.id);
         const locBtn = document.createElement('button');
         locBtn.textContent = loc.name;
         
@@ -727,7 +707,7 @@ function renderLocations() {
 }
 
 function renderNoiseBar() {
-    const noise = gameState.roomNoise[gameState.location] || 0; // Lee el ruido de la sala actual
+    const noise = gameState.roomNoise[gameState.location] || 0;
     noiseValueUI.textContent = Math.round(noise);
     noiseBar.style.width = `${noise}%`;
     
@@ -751,7 +731,7 @@ function renderPlayerState() {
     const stateClass = getPlayerStateClass();
     
     playerStateUI.textContent = stateText;
-    playerStateUI.className = 'font-bold'; // Limpia clases viejas
+    playerStateUI.className = 'font-bold';
     playerStateUI.classList.add(stateClass);
 }
 
@@ -774,27 +754,52 @@ function renderRuloState() {
     ruloStateUI.classList.add(stateClass);
 }
 
-// --- Modales de Stats y Mochila ---
+// --- Modales (Confirmación, Stats, Mochila) ---
+
+// NUEVO: Modal de confirmación genérico
+function showConfirmationModal(message, onConfirmCallback) {
+    $('#confirm-message').textContent = message;
+    
+    // Limpia listeners antiguos y añade nuevos
+    const confirmBtn = $('#confirm-btn-yes');
+    const cancelBtn = $('#confirm-btn-no');
+    
+    const newConfirmBtn = confirmBtn.cloneNode(true);
+    confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+    
+    const newCancelBtn = cancelBtn.cloneNode(true);
+    cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
+
+    newConfirmBtn.addEventListener('click', () => {
+        onConfirmCallback();
+        closeAllModals();
+    });
+    newCancelBtn.addEventListener('click', closeAllModals);
+    
+    closeAllModals(); // Cierra otros modales
+    confirmModal.classList.remove('hidden');
+}
+
 
 function toggleBackpack() {
     if (!gameState.flags.backpack_enabled) return;
     
     if (backpackModal.classList.contains('hidden')) {
-        closeAllModals(); // Cierra otros modales primero
+        closeAllModals();
         renderBackpack();
         backpackModal.classList.remove('hidden');
     } else {
-        closeAllModals(); // Simplemente cierra este
+        closeAllModals();
     }
 }
 
 function togglePlayerStats() {
     if (playerStatsModal.classList.contains('hidden')) {
-        closeAllModals(); // Cierra otros modales primero
+        closeAllModals();
         renderPlayerStatsModal();
         playerStatsModal.classList.remove('hidden');
     } else {
-        closeAllModals(); // Simplemente cierra este
+        closeAllModals();
     }
 }
 
@@ -802,11 +807,11 @@ function toggleRuloStats() {
     if (!gameState.flags.rulo_joins) return;
     
     if (ruloStatsModal.classList.contains('hidden')) {
-        closeAllModals(); // Cierra otros modales primero
+        closeAllModals();
         renderRuloStatsModal();
         ruloStatsModal.classList.remove('hidden');
     } else {
-        closeAllModals(); // Simplemente cierra este
+        closeAllModals();
     }
 }
 
@@ -814,12 +819,16 @@ function closeAllModals() {
     backpackModal.classList.add('hidden');
     playerStatsModal.classList.add('hidden');
     ruloStatsModal.classList.add('hidden');
+    confirmModal.classList.add('hidden'); // NUEVO
+    
+    // No cerrar el minijuego de calma desde aquí
+    // calmMinigame.classList.add('hidden'); 
 }
 
-// --- NUEVA FUNCIÓN: Cierra modales al hacer clic afuera ---
 function handleNarrativeClick() {
+    if (calmGameActive) return; // No hacer nada si el minijuego de calma está activo
     closeAllModals();
-    skipTyping(); // Sigue permitiendo skipear el texto
+    skipTyping();
 }
 
 function renderBackpack() {
@@ -869,7 +878,8 @@ function renderBackpack() {
     });
 }
 
-function createStatBar(label, value, colorClass) {
+// MODIFICADO: para añadir botón de calma
+function createStatBar(label, value, colorClass, buttonHtml = '') {
     const percent = Math.max(0, Math.min(100, Math.round(value)));
     let color;
     if (colorClass === 'herido') color = 'var(--state-herido)';
@@ -879,19 +889,25 @@ function createStatBar(label, value, colorClass) {
     
     return `
         <li class="stat-item">
-            <span style="color: ${color}">${label}: ${percent}%</span>
-            <div class="stat-bar">
-                <div class="stat-bar-inner" style="width: ${percent}%; background-color: ${color};"></div>
+            <div class="stat-item-main">
+                <span style="color: ${color}">${label}: ${percent}%</span>
+                <div class="stat-bar">
+                    <div class="stat-bar-inner" style="width: ${percent}%; background-color: ${color};"></div>
+                </div>
             </div>
+            ${buttonHtml}
         </li>
     `;
 }
 
+// MODIFICADO: para añadir botón de calma
 function renderPlayerStatsModal() {
     const stats = gameState.playerStats;
     let html = '';
     html += createStatBar('Vida', stats.vida, (stats.vida <= 40 ? 'herido' : (stats.vida <= 70 ? 'hambre' : 'calm')));
-    html += createStatBar('Ansiedad', stats.ansiedad, (stats.ansiedad >= 70 ? 'herido' : (stats.ansiedad >= 40 ? 'ansioso' : 'calm')));
+    // Añade el botón de calmar a la barra de ansiedad
+    const calmBtnHtml = `<button id="start-calm-btn" class="btn-action">Calmar</button>`;
+    html += createStatBar('Ansiedad', stats.ansiedad, (stats.ansiedad >= 70 ? 'herido' : (stats.ansiedad >= 40 ? 'ansioso' : 'calm')), calmBtnHtml);
     html += createStatBar('Hambre', stats.hambre, (stats.hambre >= 60 ? 'hambre' : 'calm'));
     html += createStatBar('Agua', stats.agua, (stats.agua >= 60 ? 'hambre' : 'calm'));
     
@@ -914,23 +930,23 @@ function useItem(itemId, target) {
     switch (itemId) {
         case 'barrita':
             if (target === 'player') updatePlayerStat('hambre', -40);
-            else updateRuloHP(5); // Curación menor para Rulo
-            feedbackText = (target === 'player' ? "Comes" : "Rulo come") + " la barrita. El hambre disminuye.";
+            else updateRuloHP(5);
+            feedbackText = (target === 'player' ? "Comes" : "Rulo come") + " la barrita.";
             break;
         case 'botella_agua':
             if (target === 'player') updatePlayerStat('agua', -50);
             else updateRuloHP(5);
-            feedbackText = (target === 'player' ? "Bebes" : "Rulo bebe") + " agua. Te sientes un poco mejor.";
+            feedbackText = (target === 'player' ? "Bebes" : "Rulo bebe") + " agua.";
             break;
         case 'vendaje':
             let targetHP = (target === 'player') ? gameState.playerStats.vida : gameState.ruloHP;
             if (targetHP < 100) {
                 if (target === 'player') updatePlayerStat('vida', 30);
                 else updateRuloHP(30);
-                feedbackText = (target === 'player' ? "Aplicas" : "Rulo aplica") + " el vendaje. La herida cierra un poco.";
+                feedbackText = (target === 'player' ? "Aplicas" : "Rulo aplica") + " el vendaje.";
             } else {
                 feedbackText = (target === 'player' ? "No estás" : "Rulo no está") + " herido.";
-                return; // No consumir si no está herido
+                return;
             }
             break;
         default:
@@ -940,41 +956,61 @@ function useItem(itemId, target) {
     removeItem(itemId, 1);
     closeAllModals();
     
-    typeText(feedbackText, false, () => {
-        renderOptions(GAME_CONTENT[gameState.location].options);
-    });
+    // MODIFICADO: Usa el sistema de notificaciones
+    logNotification(feedbackText, 'info');
+    
+    // Opcional: también añadir al log principal si se desea
+    // typeText(feedbackText, false, () => {
+    //     renderOptions(GAME_CONTENT[gameState.location].options, gameState.location);
+    // });
 }
 
-// --- EFECTOS DE JUEGO ---
+// --- EFECTOS DE JUEGO Y NOTIFICACIONES ---
+
+// NUEVO: Sistema de log de notificaciones
+function logNotification(text, type = 'info') {
+    const el = document.createElement('div');
+    el.className = 'notification-item';
+    
+    if (type === 'static') el.classList.add('notification-static');
+    else if (type === 'sfx') el.classList.add('notification-sfx');
+    else if (type === 'scare') el.classList.add('notification-scare');
+    else if (type === 'item') el.classList.add('notification-item-found');
+    else el.classList.add('notification-info'); // 'info'
+    
+    el.textContent = text;
+    
+    notificationLog.appendChild(el);
+    notificationLog.scrollTop = notificationLog.scrollHeight;
+}
+
+// MODIFICADO: Re-propuesto para añadir efectos al log principal (si se desea)
+// Por ahora, solo efectos visuales y de sonido (en el futuro)
+function displayTextEffect(text, type) {
+    if (type === 'scare') {
+        appContainer.classList.add('shake');
+        setTimeout(() => appContainer.classList.remove('shake'), 300);
+    }
+    
+    // Ya no añade texto al narrativeLog, eso lo hace logNotification
+}
 
 const gameEffects = {
     playScare: ({ text, shake }) => {
-        displayTextEffect(`!!! ${text} !!!`, 'scare');
+        logNotification(text, 'scare'); // MODIFICADO
         if (shake) {
             appContainer.classList.add('shake');
             setTimeout(() => appContainer.classList.remove('shake'), 300);
         }
-        updatePlayerStat('ansiedad', 25); // Aumenta la ansiedad
+        updatePlayerStat('ansiedad', 25);
     },
     playSfx: (text) => {
-        displayTextEffect(text, 'sfx');
+        logNotification(text, 'sfx'); // MODIFICADO
     },
     playStatic: (text) => {
-        displayTextEffect(`--- ${text} ---`, 'static');
+        logNotification(text, 'static'); // MODIFICADO
     }
 };
-
-function displayTextEffect(text, type) {
-    const el = document.createElement('div');
-    el.textContent = text;
-    
-    if (type === 'static') el.className = 'static-line';
-    else if (type === 'sfx') el.className = 'sfx-text';
-    else if (type === 'scare') el.className = 'scare-text';
-    
-    narrativeLog.appendChild(el);
-    narrativeLog.scrollTop = narrativeLog.scrollHeight;
-}
 
 // --- LÓGICA DEL MONSTRUO Y REACCIÓN ---
 
@@ -989,7 +1025,10 @@ function checkRuloAlert() {
         gameState.ruloAlertActive = true;
         gameState.ruloAlertCooldown = RULO_ALERT_COOLDOWN;
         changeRoomNoise(gameState.location, -8);
-        displayTextEffect('RULO: “¡ALGO NO VA BIEN, CÁLLATE!”', 'sfx');
+        logNotification('RULO: “¡ALGO NO VA BIEN, CÁLLATE!”', 'sfx');
+        
+        // NUEVO: Inicia el minijuego de calma
+        startCalmMinigame();
     }
 }
 
@@ -997,8 +1036,15 @@ function checkMonsterSpawn() {
     if (gameState.monsterPresent || gameState.monsterApproaching) return;
 
     const currentRoomNoise = gameState.roomNoise[gameState.location] || 0;
-    let baseProb = 0.005; // 0.5%
-    let noiseProb = (currentRoomNoise / 100) * 0.05; // 5% max
+    
+    // Multiplicador de dificultad
+    let diffMultiplier = 1.0;
+    if (gameState.difficulty === 'easy') diffMultiplier = 0.5;
+    if (gameState.difficulty === 'hard') diffMultiplier = 1.8;
+    if (gameState.difficulty === 'nightmare') diffMultiplier = 2.5;
+
+    let baseProb = 0.005 * diffMultiplier;
+    let noiseProb = (currentRoomNoise / 100) * 0.05 * diffMultiplier;
     
     let stateMultiplier = 1.0;
     if (currentRoomNoise > 40) { 
@@ -1007,8 +1053,9 @@ function checkMonsterSpawn() {
         else if (gameState.playerStats.hambre >= 80) stateMultiplier *= 1.2;
     }
 
+    // ruloAlertActive se resetea si se falla el minijuego de calma
     if (gameState.ruloAlertActive) {
-        stateMultiplier *= 0.6;
+        stateMultiplier *= 0.5; // Rulo te avisó pero no te calmaste
         gameState.ruloAlertActive = false;
     }
     
@@ -1019,18 +1066,17 @@ function checkMonsterSpawn() {
     }
 }
 
+// MODIFICADO: No interrumpe diálogos
 function initiateMonsterApproach() {
     gameState.monsterApproaching = true;
-    stopGameLoop(); 
+    stopGameLoop(); // Pausa el decaimiento de ruido y otros spawns
     
-    if (isTyping) {
-        finishTyping(true);
-    }
-    optionsContainer.innerHTML = '';
+    // NO interrumpe el tipeo
+    // NO limpia opciones
     
-    gameEffects.playSfx("...una sombra se alarga bajo la puerta...");
+    logNotification("...una sombra se alarga bajo la puerta...", 'sfx');
     
-    const delay = 1000 + (Math.random() * 1000); // 1-2s
+    const delay = 1000 + (Math.random() * 1000);
     setTimeout(spawnMonster, delay);
 }
 
@@ -1038,28 +1084,29 @@ function spawnMonster() {
     gameState.monsterPresent = true;
     gameState.monsterApproaching = false;
     
-    // Penalización por estado
     let statePenalty = 0;
     if (gameState.playerStats.ansiedad >= 70) statePenalty += 0.2;
     if (gameState.playerStats.vida <= 40) statePenalty += 0.15;
-    if (gameState.playerStats.hambre >= 80) statePenalty += 0.1;
     
-    // Bonus de Rulo
     let ruloBonus = 1.0;
-    if (gameState.flags.rulo_joins && gameState.ruloHP > 50) {
-        ruloBonus = 1.15; // 15% más grande y más tiempo
-    }
+    if (gameState.flags.rulo_joins && gameState.ruloHP > 50) ruloBonus = 1.15;
     
+    // NUEVO: Modificador de dificultad
+    let diffFactor = 1.0; // medium
+    if (gameState.difficulty === 'easy') diffFactor = 1.25; // 25% más grande
+    if (gameState.difficulty === 'hard') diffFactor = 0.75; // 25% más pequeño
+    if (gameState.difficulty === 'nightmare') diffFactor = 0.5; // 50% más pequeño
+
     const currentRoomNoise = gameState.roomNoise[gameState.location] || 0;
 
     // FÓRMULA DE TAMAÑO
-    const sizeFactor = Math.max(0.4, Math.min(1.8, 0.6 + (currentRoomNoise / 200) - statePenalty)) * ruloBonus;
-    const baseSize = 80; // px
+    const sizeFactor = Math.max(0.4, Math.min(1.8, 0.6 + (currentRoomNoise / 200) - statePenalty)) * ruloBonus * diffFactor;
+    const baseSize = 80;
     const size = Math.round(baseSize * sizeFactor);
     
     // FÓRMULA DE TIEMPO
-    const normalizedFactor = (sizeFactor - 0.4) / (1.8 - 0.4); // 0 a 1
-    reactionWindowMs = (1000 + (normalizedFactor * 2000)) * ruloBonus; // 1 a 3 segundos
+    const normalizedFactor = (sizeFactor - 0.4) / (1.8 - 0.4);
+    reactionWindowMs = (1000 + (normalizedFactor * 2000)) * ruloBonus;
     
     const narrativeRect = narrativeContainer.getBoundingClientRect();
     const rectWidth = narrativeRect.width || narrativeContainer.clientWidth;
@@ -1086,25 +1133,27 @@ function updateReactionTimer() {
     const remaining = Math.max(0, reactionWindowMs - elapsed);
     reactionBtn.textContent = (remaining / 1000).toFixed(1);
     
-    // Penalización por tiempo (reducción de tamaño)
+    // ... lógica de reducción de tamaño (sin cambios) ...
     const timePenalty = (elapsed / 10000);
     let statePenalty = 0;
     if (gameState.playerStats.ansiedad >= 70) statePenalty += 0.2;
     if (gameState.playerStats.vida <= 40) statePenalty += 0.15;
-    
     let ruloBonus = 1.0;
-    if (gameState.flags.rulo_joins && gameState.ruloHP > 50) {
-        ruloBonus = 1.15;
-    }
+    if (gameState.flags.rulo_joins && gameState.ruloHP > 50) ruloBonus = 1.15;
+    let diffFactor = 1.0;
+    if (gameState.difficulty === 'easy') diffFactor = 1.25;
+    if (gameState.difficulty === 'hard') diffFactor = 0.75;
+    if (gameState.difficulty === 'nightmare') diffFactor = 0.5;
     
     const currentRoomNoise = gameState.roomNoise[gameState.location] || 0;
-    const sizeFactor = Math.max(0.4, Math.min(1.8, 0.6 + (currentRoomNoise / 200) - statePenalty - timePenalty)) * ruloBonus;
-    const baseSize = 80; // px
+    const sizeFactor = Math.max(0.4, Math.min(1.8, 0.6 + (currentRoomNoise / 200) - statePenalty - timePenalty)) * ruloBonus * diffFactor;
+    const baseSize = 80;
     const size = Math.round(baseSize * sizeFactor);
     reactionBtn.style.width = `${size}px`;
     reactionBtn.style.height = `${size}px`;
 }
 
+// MODIFICADO: No interrumpe diálogos
 function clickReactionBtn() {
     clearTimeout(reactionTimeout);
     clearInterval(reactionTimerInterval);
@@ -1113,21 +1162,22 @@ function clickReactionBtn() {
     gameState.monsterPresent = false;
     gameState.monsterTime = 0;
     changeRoomNoise(gameState.location, -15);
-    updatePlayerStat('ansiedad', -30); // Recompensa
+    updatePlayerStat('ansiedad', -30);
     
-    typeText("...un movimiento rápido. El Eco retrocede hacia las sombras. Estás a salvo, por ahora.", false, () => {
-        resumeGame();
-    });
+    logNotification("...un movimiento rápido. El Eco retrocede. Estás a salvo.", 'sfx');
+    
+    resumeGame(); // Reinicia el bucle principal
 }
 
+// MODIFICADO: No interrumpe diálogos
 function failReaction() {
     clearInterval(reactionTimerInterval);
     reactionBtn.style.display = 'none';
     
     gameState.monsterPresent = false;
     gameState.monsterTime = 0;
-    updatePlayerStat('vida', -25); // Penalización de vida
-    updatePlayerStat('ansiedad', 20); // Penalización de ansiedad
+    updatePlayerStat('vida', -25);
+    updatePlayerStat('ansiedad', 20);
     
     const items = Object.keys(gameState.inventory);
     let lostItem = "";
@@ -1140,9 +1190,115 @@ function failReaction() {
         }
     }
     
-    typeText(`¡DEMASIADO TARDE!\nSientes un frío desgarrador. El Eco te roza.\nPierdes tu [${lostItem || 'cordura'}] y te sientes herido.`, false, () => {
-        resumeGame();
-    });
+    logNotification(`¡DEMASIADO TARDE! El Eco te roza. Pierdes tu [${lostItem || 'cordura'}].`, 'scare');
+    
+    resumeGame(); // Reinicia el bucle principal
+}
+
+// --- NUEVO: MINIJUEGO DE CALMA ---
+
+function startCalmMinigame() {
+    if (calmGameActive) return;
+    calmGameActive = true;
+    
+    // Pausa el juego pero no los diálogos
+    stopGameLoop();
+    closeAllModals();
+    
+    // Configuración de dificultad
+    let targetWidthPercent = 25; // medium
+    calmMarkerSpeed = 2.5;
+    if (gameState.difficulty === 'easy') { targetWidthPercent = 35; calmMarkerSpeed = 2.0; }
+    if (gameState.difficulty === 'hard') { targetWidthPercent = 20; calmMarkerSpeed = 3.0; }
+    if (gameState.difficulty === 'nightmare') { targetWidthPercent = 15; calmMarkerSpeed = 3.5; }
+
+    calmTargetLeft = Math.random() * (100 - targetWidthPercent);
+    calmTargetWidth = targetWidthPercent;
+    
+    $('#calm-target').style.left = `${calmTargetLeft}%`;
+    $('#calm-target').style.width = `${calmTargetWidth}%`;
+    
+    calmMarkerPos = 0;
+    calmMarkerDir = 1;
+    $('#calm-marker').style.left = `0%`;
+    
+    calmMinigame.classList.remove('hidden');
+    
+    window.addEventListener('keydown', handleCalmKey);
+    calmGameInterval = setInterval(updateCalmMarker, 16); // ~60fps
+    calmGameTimeout = setTimeout(failCalmMinigame, 8000); // 8 segundos para intentarlo
+}
+
+function updateCalmMarker() {
+    calmMarkerPos += calmMarkerDir * calmMarkerSpeed;
+    if (calmMarkerPos >= 100) {
+        calmMarkerPos = 100;
+        calmMarkerDir = -1;
+    }
+    if (calmMarkerPos <= 0) {
+        calmMarkerPos = 0;
+        calmMarkerDir = 1;
+    }
+    $('#calm-marker').style.left = `${calmMarkerPos}%`;
+}
+
+function handleCalmKey(e) {
+    if (!calmGameActive) return;
+    
+    // Solo reacciona a Espacio
+    if (e.key === ' ') {
+        e.preventDefault();
+        checkCalmHit();
+    }
+    // Permite skipear texto con Enter
+    if (e.key === 'Enter') {
+        skipTyping();
+    }
+}
+
+function checkCalmHit() {
+    const markerLeft = calmMarkerPos; // El marcador es una línea, su "posición" es su borde
+    const targetRight = calmTargetLeft + calmTargetWidth;
+    
+    if (markerLeft >= calmTargetLeft && markerLeft <= targetRight) {
+        successCalmMinigame();
+    } else {
+        failCalmMinigame();
+    }
+}
+
+function successCalmMinigame() {
+    logNotification("Respiras hondo. Te sientes más calmado.", 'sfx');
+    updatePlayerStat('ansiedad', -15);
+    
+    if (gameState.ruloAlertActive) {
+        logNotification("...el peligro parece pasar.", 'sfx');
+        gameState.ruloAlertActive = false; // Éxito en ahuyentar
+    }
+    
+    stopCalmMinigame();
+}
+
+function failCalmMinigame() {
+    logNotification("No logras concentrarte.", 'sfx');
+    // ruloAlertActive se queda en true, aumentando la prob. de spawn
+    stopCalmMinigame();
+}
+
+function stopCalmMinigame() {
+    if (!calmGameActive) return;
+    calmGameActive = false;
+    
+    clearInterval(calmGameInterval);
+    clearTimeout(calmGameTimeout);
+    window.removeEventListener('keydown', handleCalmKey);
+    
+    calmMinigame.classList.add('hidden');
+    
+    // Reanuda el juego si no hay un monstruo atacando
+    if (!gameState.monsterPresent && !gameState.monsterApproaching) {
+        startGameLoop();
+    }
 }
 
 
@@ -1161,6 +1317,7 @@ function addItem(id, name, rarity, qty = 1, consumable = false) {
     } else {
         gameState.inventory[id] = { id, name, rarity, qty, consumable };
     }
+    logNotification(`¡Objeto hallado! ${name} x${qty}`, 'item');
 }
 
 function removeItem(id, qty = 1) {
@@ -1172,32 +1329,27 @@ function removeItem(id, qty = 1) {
      }
 }
 
-/**
- * Modifica el ruido de una sala específica.
- * @param {string} roomId - El ID de la sala
- * @param {number} amount - Cantidad a sumar (puede ser negativo)
- * @param {boolean} [isDecay=false] - Si es true, no sube la ansiedad
- */
 function changeRoomNoise(roomId, amount, isDecay = false) {
     if (!roomId) roomId = gameState.location;
+    if (!gameState.roomNoise.hasOwnProperty(roomId)) return; // No afectar ruido de nodos de interacción
     
     let currentNoise = gameState.roomNoise[roomId] || 0;
     let newNoise = Math.max(0, Math.min(100, currentNoise + amount));
     gameState.roomNoise[roomId] = newNoise;
     
-    // Aumentar ansiedad si el ruido sube (y no es decaimiento)
     if (amount > 0 && !isDecay) {
         updatePlayerStat('ansiedad', amount / 5);
+        logNotification(`Ruido aumentado: +${amount}`, 'info');
     }
     
-    // Actualización instantánea si es la sala actual
     if (roomId === gameState.location) {
         renderNoiseBar();
     }
 }
 
+// MODIFICADO: Vuelve al hub de la ubicación actual
 function returnToPreviousLocation() {
-    showNode(gameState.previousLocation || 'sala_vigilancia');
+    showNode(gameState.location); // Vuelve al hub actual
 }
 
 // --- Acciones de Nodos ---
@@ -1214,16 +1366,15 @@ function despertarRulo(type) {
     if (type === 'calm') {
         gameState.flags.rulo_awake_calm = true;
         text = "Lo sacudes suavemente. Rulo se sobresalta...\n'¿Qué... dónde...?'\nSusurra, 'No... no recuerdo cómo llegamos. Solo... la estática.'";
-        updateRuloHP(0); // No cambia la vida
     } else {
-        // Brusco
         gameState.flags.rulo_awake_calm = false;
         text = "Lo sacudes con fuerza. Rulo se despierta con un grito ahogado.\n'¡NO! ¡NO ME TOQUES!'\nSe tapa la boca, pero el ruido ya está hecho.";
         changeRoomNoise(null, 30);
         gameEffects.playSfx("*GRITO AHOGADO*");
-        updateRuloHP(-5); // Le asusta y "daña"
+        updateRuloHP(-5);
     }
-    typeText(text, true, () => renderOptions(GAME_CONTENT.sala_vigilancia.options));
+    // MODIFICADO: Pasa el nodeId actual ('sala_vigilancia')
+    typeText(text, true, () => renderOptions(GAME_CONTENT.sala_vigilancia.options, 'sala_vigilancia'));
 }
 
 function sintonizarRadio() {
@@ -1243,7 +1394,7 @@ function sintonizarRadio() {
         gameEffects.playScare("ESTÁTICA ENSORDECEDORA", true);
     }
     
-    typeText(text, true, () => renderOptions(GAME_CONTENT.revisar_radio.options));
+    typeText(text, true, () => renderOptions(GAME_CONTENT.revisar_radio.options, 'revisar_radio'));
 }
 
 function forzarRadio() {
@@ -1263,7 +1414,7 @@ function forzarRadio() {
         text += "Logras abrirla, pero no parece haber nada útil dentro.";
     }
     
-    typeText(text, true, () => renderOptions(GAME_CONTENT.revisar_radio.options));
+    typeText(text, true, () => renderOptions(GAME_CONTENT.revisar_radio.options, 'revisar_radio'));
 }
 
 function buscarEnSala(roomId) {
@@ -1273,17 +1424,23 @@ function buscarEnSala(roomId) {
     updatePlayerStat('hambre', 2);
     updatePlayerStat('agua', 3);
     
+    // NUEVO: Modificadores de dificultad
+    let findChance = 0; // 0-100
+    if (gameState.difficulty === 'easy') findChance = 25;
+    if (gameState.difficulty === 'hard') findChance = -15;
+    if (gameState.difficulty === 'nightmare') findChance = -30;
+    
     if (roomId === 'sala_vigilancia') {
-        if (roll > 80 && !hasItem('llave_oxidada')) {
+        if (roll > (80 - findChance) && !hasItem('llave_oxidada')) {
             text += "Debajo de unos papeles quemados, brilla una [Llave Oxidada].";
             addItem('llave_oxidada', 'Llave Oxidada', 'R');
-        } else if (roll > 60 && !hasItem('vendaje')) {
+        } else if (roll > (60 - findChance) && !hasItem('vendaje')) {
             text += "En un botiquín de pared, encuentras un [Vendaje].";
             addItem('vendaje', 'Vendaje', 'C', 1, true);
-        } else if (roll > 40 && !hasItem('destornillador')) {
+        } else if (roll > (40 - findChance) && !hasItem('destornillador')) {
             text += "Encuentras un [Destornillador] en buen estado.";
             addItem('destornillador', 'Destornillador', 'C');
-        } else if (roll > 20 && !hasItem('nota_rasgada')) {
+        } else if (roll > (20 - findChance) && !hasItem('nota_rasgada')) {
             text += "Encuentras una [Nota Rasgada]: '...se alimenta del ruido.'";
             addItem('nota_rasgada', 'Nota Rasgada', 'R');
         } else {
@@ -1291,7 +1448,7 @@ function buscarEnSala(roomId) {
         }
     }
     
-    typeText(text, true, () => renderOptions(GAME_CONTENT[roomId].options));
+    typeText(text, true, () => renderOptions(GAME_CONTENT[roomId].options, roomId));
 }
 
 function usarDestornilladorPanel() {
@@ -1311,7 +1468,7 @@ function usarDestornilladorPanel() {
         text += "¡CHISPAZO! El destornillador resbala. Cortocircuito. La sala se oscurece un segundo.";
         changeRoomNoise(null, 40);
         gameEffects.playScare("CORTOCIRCUITO", true);
-        typeText(text, true, () => renderOptions(GAME_CONTENT.panel_pasillo.options));
+        typeText(text, true, () => renderOptions(GAME_CONTENT.panel_pasillo.options, 'panel_pasillo'));
     }
 }
 
@@ -1340,7 +1497,7 @@ function forzarPalancaPanel() {
      } else {
          text += "Tiras y tiras, pero está atascada. No se mueve.";
          changeRoomNoise(null, 10);
-         typeText(text, true, () => renderOptions(GAME_CONTENT.panel_pasillo.options));
+         typeText(text, true, () => renderOptions(GAME_CONTENT.panel_pasillo.options, 'panel_pasillo'));
      }
 }
 
@@ -1361,7 +1518,7 @@ function hablarConRulo() {
     }
     
     renderRuloState();
-    typeText(text, true, () => renderOptions(GAME_CONTENT.pasillo_este_hub.options));
+    typeText(text, true, () => renderOptions(GAME_CONTENT.pasillo_este_hub.options, 'pasillo_este_hub'));
 }
 
 function explorarPasillo() {
@@ -1371,15 +1528,27 @@ function explorarPasillo() {
     updatePlayerStat('hambre', 3);
     updatePlayerStat('agua', 4);
     
-    if (roll > 75) {
+    // NUEVO: Modificadores de dificultad
+    let findChance = 0; // 0-100
+    if (gameState.difficulty === 'easy') findChance = 20;
+    if (gameState.difficulty === 'hard') findChance = -10;
+    if (gameState.difficulty === 'nightmare') findChance = -25;
+    
+    // En pesadilla, menos comida
+    let qtyMultiplier = 1;
+    if (gameState.difficulty === 'nightmare') qtyMultiplier = 0.5;
+
+    if (roll > (75 - findChance)) {
         text += "¡Genial! Encuentras [Baterías] nuevas.";
         addItem('bateria', 'Batería Vieja', 'C', 2, true);
-    } else if (roll > 40) {
-        text += "Dentro hay una [Barrita Energética] rancia.";
-        addItem('barrita', 'Barrita Energética', 'C', 1, true);
-    } else if (roll > 20) {
-        text += "Encuentras una [Botella de Agua] medio llena.";
-        addItem('botella_agua', 'Botella de Agua', 'C', 1, true);
+    } else if (roll > (40 - findChance)) {
+        let qty = Math.max(1, Math.round(1 * qtyMultiplier));
+        text += `Dentro hay una [Barrita Energética]${qty > 0 ? '' : ' (rancia y rota)'}.`;
+        if (qty > 0) addItem('barrita', 'Barrita Energética', 'C', qty, true);
+    } else if (roll > (20 - findChance)) {
+        let qty = Math.max(1, Math.round(1 * qtyMultiplier));
+        text += `Encuentras una [Botella de Agua]${qty > 0 ? ' medio llena' : ' (vacía y sucia)'}.`;
+        if (qty > 0) addItem('botella_agua', 'Botella de Agua', 'C', qty, true);
     } else {
         text += "Vacía. Solo poliestireno húmedo.";
     }
@@ -1388,7 +1557,7 @@ function explorarPasillo() {
     const max = SEARCH_LIMITS['pasillo_este_hub'] || 0;
     text += `\n(Has revisado ${count}/${max} zonas)`;
     
-    typeText(text, true, () => renderOptions(GAME_CONTENT.pasillo_este_hub.options));
+    typeText(text, true, () => renderOptions(GAME_CONTENT.pasillo_este_hub.options, 'pasillo_este_hub'));
 }
 
 function moverSigilo() {
@@ -1410,7 +1579,7 @@ function moverSigilo() {
     }
     renderLocations();
     
-    typeText(text, true, () => renderOptions(GAME_CONTENT.pasillo_este_hub.options));
+    typeText(text, true, () => renderOptions(GAME_CONTENT.pasillo_este_hub.options, 'pasillo_este_hub'));
 }
 
 function moverRapido() {
@@ -1436,24 +1605,25 @@ function moverRapido() {
         renderLocations();
     }
     
-    typeText(text, true, () => renderOptions(GAME_CONTENT.pasillo_este_hub.options));
+    typeText(text, true, () => renderOptions(GAME_CONTENT.pasillo_este_hub.options, 'pasillo_este_hub'));
 }
 
-// --- NUEVO: Acciones del Puzzle de Ruido ---
+// --- Acciones del Puzzle de Ruido ---
 
 function solveNoisePuzzle(success) {
-    const prevLoc = gameState.previousLocation;
+    // El ruido se aplica a gameState.location, que es el hub correcto
     
     if (success) {
-        gameState.roomNoise[prevLoc] = 0; // Resetea el ruido de la sala anterior
+        gameState.roomNoise[gameState.location] = 0; // Resetea el ruido del hub
+        logNotification("¡Éxito! Ruido de sala reducido a 0.", 'sfx');
         typeText("¡Éxito! Un clic satisfactorio. El zumbido de fondo en la sala disminuye.\nEl ruido en esa zona ha sido purgado.", true, () => {
-            setTimeout(() => showNode(prevLoc), 1000);
+            setTimeout(() => showNode(gameState.location), 1000); // Vuelve al hub
         });
     } else {
-        changeRoomNoise(prevLoc, 20); // Penalización de ruido en la sala anterior
+        changeRoomNoise(gameState.location, 20); // Penalización de ruido en el hub
         gameEffects.playScare("FALLO DE SECUENCIA", true);
         typeText("¡Fallo! Un chispazo ensordecedor salta del panel. El ruido ha aumentado.", true, () => {
-            setTimeout(() => showNode(prevLoc), 1000);
+            setTimeout(() => showNode(gameState.location), 1000); // Vuelve al hub
         });
     }
 }
@@ -1463,18 +1633,17 @@ function solveNoisePuzzle(success) {
 
 const GAME_CONTENT = {
     'start': {
-        // Este nodo ahora es solo un punto de entrada lógico
-        isCheckpoint: true,
+        isLocationHub: false, // No es un hub
         text: "Cargando...",
         options: []
     },
-    // --- NUEVO NODO DE INICIO ---
     'ajustes_dispositivo': {
+        isInteraction: true, // NUEVO
         text: "Iniciando sistema...\nPor favor, selecciona tu modo de visualización preferido.",
-        options: [
-            // Estos ya no se usan, ya que la lógica está directamente en el event listener
-        ]
+        options: []
     },
+    
+    // --- Sala Vigilancia (HUB) ---
     'sala_vigilancia': {
         isLocationHub: true,
         isCheckpoint: true,
@@ -1492,6 +1661,7 @@ const GAME_CONTENT = {
         ]
     },
     'revisar_radio': {
+        isInteraction: true, // NUEVO
         text: "La radio emite estática. La luz del canal 19 parpadea.",
         options: [
             { text: "Intentar sintonizar manualmente", action: { func: "sintonizarRadio" }, condition: { func: "checkFlagFalse", params: "radio_pista" } },
@@ -1500,6 +1670,7 @@ const GAME_CONTENT = {
         ]
     },
     'buscar_salida': {
+        isInteraction: true, // NUEVO
         text: "La única salida parece ser una puerta metálica pesada: 'PASILLO ESTE'. Está cerrada. Al lado hay un panel de control.",
         options: [
             { text: "Inspeccionar panel de control", target: "panel_pasillo" },
@@ -1507,6 +1678,7 @@ const GAME_CONTENT = {
         ]
     },
     'panel_pasillo': {
+        isInteraction: true, // NUEVO
         text: "Un panel de acceso. La luz está en rojo. Necesita energía o una llave para anular el cierre.",
         options: [
             { text: "Usar Destornillador en el panel", action: { func: "usarDestornilladorPanel" }, condition: { func: "checkHasItem", params: "destornillador" } },
@@ -1515,8 +1687,8 @@ const GAME_CONTENT = {
             { text: "Volver", target: "sala_vigilancia" }
         ]
     },
-    
     'parte1_fin_exito': {
+        isInteraction: true, // NUEVO
         text: "La puerta al pasillo chisporrotea y se abre.\nUn golpe seco viene del sótano. Una sombra pasa por la rendija de la puerta del sótano, fugazmente.",
         effect: { name: "playScare", params: { text: "SOMBRA EN EL SÓTANO", shake: true } },
         options: [
@@ -1524,15 +1696,17 @@ const GAME_CONTENT = {
         ]
     },
     'eco_cerca': {
+        isInteraction: true, // NUEVO
         text: "El estruendo resuena. La radio grita: N—O — C O N F Í E— .\nDe pronto, la voz susurra TU NOMBRE.\nEl Eco está cerca.",
         effect: { name: "playStatic", params: "EL ECO ESTÁ CERCA" },
         options: [
-            { text: "[FIN DE LA DEMO - REINICIAR]", target: "start" }
+            { text: "[FIN DE LA DEMO - REINICIAR]", action: { func: "goToMenu" } } // Vuelve al menú
         ]
     },
     
     // --- PARTE 2 ---
     'pasillo_este_intro': {
+        isInteraction: true, // Es una intro, no el hub
         isCheckpoint: true,
         text: "Abres la puerta al pasillo Este. La luz de emergencia titila en rojo. A la derecha, apoyada contra una columna, hay una mochila vieja.",
         options: [
@@ -1540,7 +1714,8 @@ const GAME_CONTENT = {
         ]
     },
     'abrir_mochila': {
-        text: "Abres la mochila. Está vacía, pero limpia. Transfieres tus cosas a ella.\n(Has conseguido la [Mochila]. Puedes abrirla con [M]).",
+        isInteraction: true, // NUEVO
+        text: "Abres la mochila. Está vacía, pero limpia. Transfieres tus cosas a ella.\n(Has conseguido la [Mochila]).",
         onEnter: { func: "enableBackpack" },
         options: [
             { text: "Continuar por el pasillo", target: "pasillo_este_hub" }
@@ -1548,6 +1723,7 @@ const GAME_CONTENT = {
     },
     'pasillo_este_hub': {
         isLocationHub: true,
+        isCheckpoint: true, // NUEVO
         text: "Estás en el Pasillo Este. Hay cajas de suministros podridas. Al fondo, el pasillo se bifurca. El zumbido es más fuerte aquí.",
         options: [
             { 
@@ -1555,19 +1731,12 @@ const GAME_CONTENT = {
                 action: { func: "explorarPasillo" },
                 countsSearch: "pasillo_este_hub"
             },
-            { 
-                text: "Avanzar con cuidado (Ruta Cautelosa)", 
-                action: { func: "moverSigilo" } 
-            },
-            { 
-                text: "Correr al fondo (Ruta Rápida)", 
-                action: { func: "moverRapido" } 
-            },
+            { text: "Avanzar con cuidado (Ruta Cautelosa)", action: { func: "moverSigilo" } },
+            { text: "Correr al fondo (Ruta Rápida)", action: { func: "moverRapido" } },
             { 
                 text: "Hablar con Rulo", 
                 action: { func: "hablarConRulo" }, 
                 condition: { func: "checkFlagTrue", params: "rulo_awake" },
-                condition: { func: "checkFlagFalse", params: "rulo_talked" } 
             },
             { text: "Volver a la Sala de Vigilancia", target: "sala_vigilancia" }
         ]
@@ -1575,65 +1744,120 @@ const GAME_CONTENT = {
     
     'almacen': {
         isLocationHub: true,
+        isCheckpoint: true, // NUEVO
         text: "Llegas al almacén. Cajas apiladas, olor a aceite. Se oyen rascaduras detrás de una estantería.",
         options: [
             { text: "Buscar suministros (Próximamente)", target: "almacen" },
-            { text: "Mover caja grande (Próximamente)", target: "almacen" },
             { text: "Volver al Pasillo Este", target: "pasillo_este_hub" }
         ]
     },
     'oficina_seguridad': {
         isLocationHub: true,
+        isCheckpoint: true, // NUEVO
         text: "Entras a la oficina de seguridad. Un escritorio volcado, notas en el suelo. Hay una llave colgando de un tablero.",
         options: [
             { text: "Leer notas (Próximamente)", target: "oficina_seguridad" },
-            { text: "Coger llave (Próximamente)", target: "oficina_seguridad" },
             { text: "Volver al Pasillo Este", target: "pasillo_este_hub" }
         ]
     },
     'sotano': {
         isLocationHub: true,
+        isCheckpoint: true, // NUEVO
         text: "La puerta al sótano está cerrada con cadenas.",
         options: [
              { text: "Volver a la Sala de Vigilancia", target: "sala_vigilancia" }
         ]
     },
     
-    // --- NUEVO: Nodos de Puzzle de Ruido ---
+    // --- Nodos de Puzzle de Ruido ---
     'puzzle_ruido_intro': {
-        text: "Te concentras en el panel de la barra de ruido. Puedes intentar recalibrarlo.\nMientras manipulas el panel, el riesgo de aparición aumenta ligeramente.",
+        isInteraction: true, // NUEVO
+        text: "Te concentras en el panel de la barra de ruido. Puedes intentar recalibrarlo.\nSelecciona la complejidad del bypass que quieres intentar.",
         options: [
-            { text: "Ordenar fusibles (Fácil)", target: "puzzle_fusibles_1" },
+            // MODIFICADO: Ahora depende de la dificultad
+            { text: "Ordenar fusibles (Fácil)", target: "puzzle_fusibles_1", condition: { func: "checkDifficulty", params: "easy" } },
+            { text: "Ordenar fusibles (Medio)", target: "puzzle_fusibles_2", condition: { func: "checkDifficulty", params: "medium" } },
+            { text: "Ordenar fusibles (Difícil)", target: "puzzle_fusibles_3", condition: { func: "checkDifficulty", params: "hard" } },
+            { text: "Ordenar fusibles (Pesadilla)", target: "puzzle_fusibles_4", condition: { func: "checkDifficulty", params: "nightmare" } },
             { text: "Cancelar", action: { func: "returnToPreviousLocation" } }
         ]
     },
-    'puzzle_fusibles_1': {
-        text: "Hay 3 ranuras: [1] [2] [3]. Y 3 fusibles: [Rojo] [Verde] [Azul].\nUna nota dice: 'El verde estabiliza. El rojo potencia. El azul enfría.'\nDebes poner el estabilizador *antes* que el de potencia.",
+    'puzzle_fusibles_1': { // Fácil
+        isInteraction: true, 
+        text: "Hay 3 ranuras: [1] [2] [3]. Y 3 fusibles: [Rojo] [Verde] [Azul].\nNota: 'El verde estabiliza. El rojo potencia. El azul enfría.'\nDebes poner el estabilizador *antes* que el de potencia.",
         options: [
             { text: "Insertar: Azul, Verde, Rojo", action: { func: "solveNoisePuzzle", params: false } },
             { text: "Insertar: Verde, Azul, Rojo", action: { func: "solveNoisePuzzle", params: true } }, // Correcto
             { text: "Insertar: Rojo, Verde, Azul", action: { func: "solveNoisePuzzle", params: false } }
         ]
+    },
+    'puzzle_fusibles_2': { // Medio (Igual que fácil por ahora)
+        isInteraction: true, 
+        text: "Hay 3 ranuras: [1] [2] [3]. Y 3 fusibles: [Rojo] [Verde] [Azul].\nNota: 'El verde estabiliza. El rojo potencia. El azul enfría.'\nDebes poner el estabilizador *antes* que el de potencia.",
+        options: [
+            { text: "Insertar: Azul, Verde, Rojo", action: { func: "solveNoisePuzzle", params: false } },
+            { text: "Insertar: Verde, Azul, Rojo", action: { func: "solveNoisePuzzle", params: true } }, // Correcto
+            { text: "Insertar: Rojo, Verde, Azul", action: { func: "solveNoisePuzzle", params: false } }
+        ]
+    },
+    'puzzle_fusibles_3': { // Difícil (Más opciones)
+        isInteraction: true, 
+        text: "Hay 4 ranuras y 4 fusibles: [Rojo] [Verde] [Azul] [Amarillo].\nNota: 'El estabilizador (Verde) primero. El de potencia (Rojo) nunca junto al de enfriamiento (Azul).'",
+        options: [
+            { text: "Verde, Rojo, Amarillo, Azul", action: { func: "solveNoisePuzzle", params: false } },
+            { text: "Verde, Amarillo, Rojo, Azul", action: { func: "solveNoisePuzzle", params: false } },
+            { text: "Verde, Azul, Amarillo, Rojo", action: { func: "solveNoisePuzzle", params: true } }, // Correcto
+            { text: "Rojo, Verde, Azul, Amarillo", action: { func: "solveNoisePuzzle", params: false } }
+        ]
+    },
+    'puzzle_fusibles_4': { // Pesadilla (Igual que difícil por ahora)
+        isInteraction: true, 
+        text: "Hay 4 ranuras y 4 fusibles: [Rojo] [Verde] [Azul] [Amarillo].\nNota: 'El estabilizador (Verde) primero. El de potencia (Rojo) nunca junto al de enfriamiento (Azul).'",
+        options: [
+            { text: "Verde, Rojo, Amarillo, Azul", action: { func: "solveNoisePuzzle", params: false } },
+            { text: "Verde, Amarillo, Rojo, Azul", action: { func: "solveNoisePuzzle", params: false } },
+            { text: "Verde, Azul, Amarillo, Rojo", action: { func: "solveNoisePuzzle", params: true } }, // Correcto
+            { text: "Rojo, Verde, Azul, Amarillo", action: { func: "solveNoisePuzzle", params: false } }
+        ]
     }
 };
+
+// NUEVO: Condición para puzzles de dificultad
+function checkDifficulty(diff) {
+    return gameState.difficulty === diff;
+}
 
 // --- INICIALIZACIÓN Y EVENT LISTENERS ---
 
 function init() {
     // Navegación Menú
-    $('#play-btn').addEventListener('click', () => startGameFromMenu(false)); // MODIFICADO
+    $('#play-btn').addEventListener('click', () => startGameFromMenu());
     $('#load-checkpoint-btn').addEventListener('click', loadCheckpoint);
     $('#settings-btn').addEventListener('click', () => showScreen('settings'));
     $('#back-to-menu-btn').addEventListener('click', goToMenu);
     $('#game-back-to-menu-btn').addEventListener('click', goToMenu);
-    $('#change-device-btn').addEventListener('click', () => showScreen('device_select')); // NUEVO
+    $('#change-device-btn').addEventListener('click', () => showScreen('device_select'));
     
+    // NUEVO: Botón de Reset
+    $('#reset-data-btn').addEventListener('click', () => {
+        showConfirmationModal(
+            "¿Estás seguro de que quieres borrar TODOS los datos guardados? Esto incluye progreso, tema y selección de dispositivo. La acción no se puede deshacer.",
+            resetAllData // Función a ejecutar si se presiona SÍ
+        );
+    });
+    
+    // NUEVO: Botones de Dificultad
+    $('#difficulty-easy').addEventListener('click', () => selectDifficulty('easy'));
+    $('#difficulty-medium').addEventListener('click', () => selectDifficulty('medium'));
+    $('#difficulty-hard').addEventListener('click', () => selectDifficulty('hard'));
+    $('#difficulty-nightmare').addEventListener('click', () => selectDifficulty('nightmare'));
+    $('#difficulty-back-btn').addEventListener('click', goToMenu);
+
     // Opciones de Tema
     $('#theme-select').addEventListener('change', (e) => {
         changeTheme(e.target.value);
     });
-    // Restaurar tema guardado
-    const savedTheme = localStorage.getItem('transmision_theme') || 'green';
+    const savedTheme = localStorage.getItem(SAVE_KEY_THEME) || 'green';
     $('#theme-select').value = savedTheme;
     changeTheme(savedTheme);
     
@@ -1642,50 +1866,54 @@ function init() {
     $('#close-backpack-btn').addEventListener('click', closeAllModals);
     $('#reaction-btn').addEventListener('click', clickReactionBtn);
     
-    // Listeners de Modales de Stats
+    // Modales de Stats
     $('#player-state-button').addEventListener('click', togglePlayerStats);
     $('#close-player-stats-btn').addEventListener('click', closeAllModals);
     $('#rulo-hud').addEventListener('click', toggleRuloStats);
     $('#close-rulo-stats-btn').addEventListener('click', closeAllModals);
+
+    // NUEVO: Listener para botón de calma (delegación de eventos)
+    document.body.addEventListener('click', (e) => {
+        if (e.target.id === 'start-calm-btn') {
+            startCalmMinigame();
+        }
+    });
+    $('#calm-cancel-btn').addEventListener('click', failCalmMinigame); // Cancelar cuenta como fallo
     
-    // Listener de Teclado
+    // Listener de Teclado Global
     window.addEventListener('keydown', (e) => {
-        // --- 'M' and 'E' keys only work IN-GAME ---
-        // MODIFICADO: Usar style.display para chequear
+        // No hacer nada si el minijuego de calma está activo (él tiene su propio listener)
+        if (calmGameActive) return;
+
         if (gameScreen.style.display === 'flex') {
             if (e.key.toLowerCase() === 'm' && gameState.flags.backpack_enabled) {
                 toggleBackpack();
             }
-            // NUEVO: Atajo [E] para estado
             if (e.key.toLowerCase() === 'e') {
                 togglePlayerStats();
             }
         }
 
-        // --- 'Escape' key works GLOBALLY ---
         if (e.key === 'Escape') {
-            // Prioridad 1: Cerrar modales si están abiertos
             if (!backpackModal.classList.contains('hidden') || 
                 !playerStatsModal.classList.contains('hidden') || 
-                !ruloStatsModal.classList.contains('hidden')) {
+                !ruloStatsModal.classList.contains('hidden') ||
+                !confirmModal.classList.contains('hidden')) {
                 closeAllModals();
             }
-            // Prioridad 2: Salir de Ajustes al Menú Principal
-            else if (settingsScreen.style.display === 'flex') {
+            else if (settingsScreen.style.display === 'flex' || difficultySelectScreen.style.display === 'flex') {
                 showScreen('main');
             }
-            // Prioridad 3: Salir del Juego al Menú Principal (Pausar)
             else if (gameScreen.style.display === 'flex') {
                 goToMenu();
             }
-            // No hacer nada en el menú principal o en la selección de dispositivo
         }
     });
     
     // Click en la barra de ruido
     $('#noise-bar-container').addEventListener('click', () => {
-        if (isTyping || gameScreen.style.display === 'none' || gameState.monsterPresent || gameState.monsterApproaching) return;
-        // Iniciar el puzzle
+        // MODIFICADO: Añadido chequeo de minijuego de calma
+        if (isTyping || calmGameActive || gameScreen.style.display === 'none' || gameState.monsterPresent || gameState.monsterApproaching) return;
         showNode('puzzle_ruido_intro');
     });
 
@@ -1699,16 +1927,14 @@ function init() {
         $('#load-checkpoint-btn').classList.add('hidden');
     }
     
-    // --- Lógica de Inicio con Selector de Dispositivo ---
+    // Lógica de Inicio con Selector de Dispositivo
     $('#device-btn-mobile').addEventListener('click', () => selectDevice('mobile'));
     $('#device-btn-pc').addEventListener('click', () => selectDevice('pc'));
     
     const savedDevice = localStorage.getItem(SAVE_KEY_DEVICE);
     if (savedDevice) {
-        // Si ya está guardado, se aplica el dispositivo y se muestra el menú
         selectDevice(savedDevice); 
     } else {
-        // Si es la primera vez, solo se muestra el selector.
         showScreen('device_select'); 
     }
 }
