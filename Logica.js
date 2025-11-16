@@ -30,16 +30,21 @@ const ruloStateUI = $('#rulo-state');
 const noiseBar = $('#noise-bar');
 const noiseValueUI = $('#noise-value');
 const noiseTextUI = $('#noise-text');
-const backpackModal = $('#backpack-modal');
-const backpackList = $('#backpack-list');
 const saveIcon = $('#save-icon');
 const reactionBtn = $('#reaction-btn');
 const monsterProbHud = $('#monster-prob-hud'); // Medidor de prob. en Header
 const monsterProbValue = $('#monster-prob-value');
 const ruloProbHeader = $('#rulo-prob-header'); // Medidor de prob. en Columna Notif.
 const deathOverlay = $('#death-overlay'); // Overlay de muerte
+const talkRuloBtn = $('#talk-rulo-btn'); // Botón Hablar con Rulo
 
 // Modales
+const backpackModal = $('#backpack-modal');
+const backpackList = $('#backpack-list');
+const backpackNotesList = $('#backpack-notes-list'); // Lista de Notas
+const noteReaderModal = $('#note-reader-modal'); // Lector de Notas
+const noteReaderTitle = $('#note-reader-title');
+const noteReaderContent = $('#note-reader-content');
 const playerStatsModal = $('#player-stats-modal');
 const playerStatsList = $('#player-stats-list');
 const ruloStatsModal = $('#rulo-stats-modal');
@@ -47,6 +52,10 @@ const ruloStatsList = $('#rulo-stats-list');
 const confirmModal = $('#confirm-modal');
 const calmMinigame = $('#calm-minigame');
 const calmTapArea = $('#calm-tap-area'); // Área de toque para móvil
+
+// Modal Selección Minijuego Ruido
+const noiseMinigameSelectModal = $('#noise-minigame-select-modal');
+const noiseSelectCurrentNoise = $('#noise-select-current-noise');
 
 // Minijuego Fusibles
 const fuseMinigameModal = $('#fuse-minigame-modal');
@@ -56,6 +65,20 @@ const fuseOptionsContainer = $('#fuse-options-container');
 const fuseSequenceDisplay = $('#fuse-sequence-display');
 const fuseConfirmBtn = $('#fuse-confirm-btn');
 const fuseClearBtn = $('#fuse-clear-btn');
+
+// Minijuego Resonancia
+const resonanceMinigameModal = $('#resonance-minigame-modal');
+const resonanceTimer = $('#resonance-timer');
+const resonanceHintBox = $('#resonance-hint-box');
+const resonanceCanvas = $('#resonance-canvas');
+
+// Transición de Noche
+const nightTransitionOverlay = $('#night-transition-overlay');
+const nightTransitionText = $('#night-transition-text');
+
+// Keypad Caja Fuerte
+const safeKeypadModal = $('#safe-keypad-modal');
+const keypadDigits = $$('.keypad-digit');
 
 // Estado del juego
 let gameState = {};
@@ -98,17 +121,29 @@ let fuseGameData = {
 };
 let fuseGameSequence = [];
 
+// Estado del Minijuego de Resonancia
+let resonanceGameActive = false;
+let resonanceGameTimer = null;
+let resonanceGameData = {
+    timeLimit: 90,
+    solution: [], // Parte 2
+    nodes: [] // Parte 2
+};
+
+
 // Parámetros del Juego
 const RULO_ALERT_COOLDOWN = 30;
 const RULO_ALERT_BASE_PROB = 0.2;
 const RULO_ALERT_SKILL_FACTOR = 0.6;
+const NOTIFICATION_LIMIT = 15; // Límite de notificaciones en pantalla
 
 // Límite de Búsquedas (por ID de sala)
 const SEARCH_LIMITS = {
     'sala_vigilancia': 6,
     'pasillo_este_hub': 8,
     'almacen': 8,
-    'oficina_seguridad': 4
+    'oficina_seguridad': 4,
+    'sala_vigilancia_secreta': 3 
 };
 
 // Definición de temas de color (sin cambios)
@@ -157,12 +192,9 @@ function updatePlayerStat(stat, amount) {
     
     gameState.playerStats[stat] = newValue;
 
-    // Trigger de muerte
     if (stat === 'vida' && newValue <= 0) {
         handlePlayerDeath();
     }
-    
-    // No renderizar aquí para evitar sobrecarga, el game loop lo hará.
 }
 
 function updateRuloStat(stat, amount) {
@@ -180,20 +212,22 @@ function updateRuloStat(stat, amount) {
     if ((stat === 'hambre' || stat === 'agua') && newValue <= 0 && gameState.flags.rulo_joins) {
         ruloLeaves("hambre/sed");
     }
+    if (stat === 'bateria' && newValue <= 0 && gameState.flags.linterna_rulo) {
+        logNotification("La linterna de Rulo se apaga. 'Se... se acabó.'", 'scare');
+        gameState.flags.linterna_rulo = false; 
+    }
 }
 
 // Funciones de curación gradual
 function startHealing(target) {
     if (target === 'player') {
-        if (gameState.playerStats.healing.active) return; // Ya se está curando
+        if (gameState.playerStats.healing.active) return; 
         let anxiety = gameState.playerStats.ansiedad;
-        // Entre más ansiedad, más lento (ej: 0.5/s en 0 ans, 0.1/s en 100 ans)
         let healRate = Math.max(0.1, 0.5 - (anxiety / 250));
         gameState.playerStats.healing = { active: true, remaining: 30, perSecond: healRate };
         logNotification("Empiezas a vendarte. La curación será lenta.", 'info');
     } else {
         if (gameState.ruloStats.healing.active) return;
-        // Rulo no tiene ansiedad, cura a tasa fija
         gameState.ruloStats.healing = { active: true, remaining: 30, perSecond: 0.5 };
         logNotification("Rulo se aplica un vendaje.", 'info');
     }
@@ -231,10 +265,9 @@ function getPlayerStateSummary() {
     if (!stats) return "CALMADO";
     
     if (stats.vida <= 40) return "HERIDO";
-    if (stats.vida <= 70) return "DAÑADO";
     if (stats.ansiedad >= 70) return "AGITADO";
+    if (stats.vida <= 70) return "DAÑADO";
     if (stats.ansiedad >= 40) return "ANSIOSO";
-    // MODIFICADO: Hambre y agua ahora son < 40 para ser un problema
     if (stats.hambre <= 40 || stats.agua <= 40) return "FATIGADO";
     
     return "CALMADO";
@@ -244,13 +277,13 @@ function getPlayerStateClass() {
     const stats = gameState.playerStats;
     if (!stats) return "life-ok";
     
-    if (stats.vida <= 40) return "life-danger"; // Rojo
-    if (stats.ansiedad >= 70) return "life-danger"; // Rojo
-    if (stats.vida <= 70) return "life-low"; // Naranja
-    if (stats.ansiedad >= 40) return "life-anxious"; // Magenta
-    if (stats.hambre <= 40 || stats.agua <= 40) return "life-low"; // Naranja
+    if (stats.vida <= 40) return "life-danger"; 
+    if (stats.ansiedad >= 70) return "life-danger"; 
+    if (stats.vida <= 70) return "life-low"; 
+    if (stats.ansiedad >= 40) return "life-anxious"; 
+    if (stats.hambre <= 40 || stats.agua <= 40) return "life-low"; 
     
-    return "life-ok"; // Azul
+    return "life-ok"; 
 }
 
 // --- SISTEMA DE GUARDADO Y CARGA ---
@@ -272,7 +305,6 @@ function loadGameState() {
             // --- Corrección de estado guardado antiguo ---
             if (!gameState.unlockedLocations) gameState.unlockedLocations = ['sala_vigilancia'];
             
-            // Migración de stats viejos (0 -> 100) a nuevos (100 -> 0)
             if (!gameState.playerStats) {
                 gameState.playerStats = { vida: 100, ansiedad: 0, hambre: 100, agua: 100, healing: { active: false, remaining: 0, perSecond: 0 } };
             } else {
@@ -281,30 +313,42 @@ function loadGameState() {
                 if (!gameState.playerStats.healing) gameState.playerStats.healing = { active: false, remaining: 0, perSecond: 0 };
             }
 
-            // Migración de Rulo
-            if (gameState.ruloHP !== undefined) { // Si existe la variable vieja
-                gameState.ruloStats = { vida: gameState.ruloHP, hambre: 100, agua: 100, healing: { active: false, remaining: 0, perSecond: 0 } };
-                delete gameState.ruloHP; // Borra la variable vieja
-            } else if (!gameState.ruloStats) { // Si no existe nada de Rulo
-                gameState.ruloStats = { vida: 100, hambre: 100, agua: 100, healing: { active: false, remaining: 0, perSecond: 0 } };
+            if (gameState.ruloHP !== undefined) { 
+                gameState.ruloStats = { vida: gameState.ruloHP, hambre: 100, agua: 100, bateria: 0, healing: { active: false, remaining: 0, perSecond: 0 } };
+                delete gameState.ruloHP; 
+            } else if (!gameState.ruloStats) { 
+                gameState.ruloStats = { vida: 100, hambre: 100, agua: 100, bateria: 0, healing: { active: false, remaining: 0, perSecond: 0 } };
+            } else if (gameState.ruloStats.bateria === undefined) {
+                gameState.ruloStats.bateria = 0; 
             }
             
             if (!gameState.roomNoise) {
                 const oldNoise = gameState.noise || 0;
-                gameState.roomNoise = { 'sala_vigilancia': oldNoise, 'pasillo_este_hub': 0, 'almacen': 0, 'oficina_seguridad': 0, 'sotano': 0 };
+                gameState.roomNoise = { 'sala_vigilancia': oldNoise, 'pasillo_este_hub': 0, 'almacen': 0, 'oficina_seguridad': 0, 'sotano': 0, 'sala_vigilancia_secreta': 0 };
                 delete gameState.noise;
+            } else if (!gameState.roomNoise.sala_vigilancia_secreta) {
+                gameState.roomNoise.sala_vigilancia_secreta = 0;
             }
-            if (!gameState.roomCounters) gameState.roomCounters = { 'sala_vigilancia': 0, 'pasillo_este_hub': 0, 'almacen': 0, 'oficina_seguridad': 0 };
+
+            if (!gameState.roomCounters) gameState.roomCounters = { 'sala_vigilancia': 0, 'pasillo_este_hub': 0, 'almacen': 0, 'oficina_seguridad': 0, 'sala_vigilancia_secreta': 0 };
+             else if (!gameState.roomCounters.sala_vigilancia_secreta) {
+                gameState.roomCounters.sala_vigilancia_secreta = 0;
+            }
+
             if (!gameState.location || gameState.location === 'start') gameState.location = 'sala_vigilancia';
             if (!gameState.previousLocation) gameState.previousLocation = 'sala_vigilancia';
             if (!gameState.difficulty) gameState.difficulty = 'medium';
             
-            // Añadir flags nuevas si no existen
             if (gameState.flags.radio_forced_count === undefined) gameState.flags.radio_forced_count = 0;
             if (gameState.flags.rulo_rejected_join === undefined) gameState.flags.rulo_rejected_join = false;
             if (gameState.flags.rulo_dead === undefined) gameState.flags.rulo_dead = false;
             if (gameState.flags.pasillo_este_route_chosen === undefined) gameState.flags.pasillo_este_route_chosen = false;
             if (gameState.flags.player_dead === undefined) gameState.flags.player_dead = false;
+            if (gameState.flags.hab_secreta_unlocked === undefined) gameState.flags.hab_secreta_unlocked = false;
+            if (gameState.flags.linterna_found === undefined) gameState.flags.linterna_found = false;
+            if (gameState.flags.linterna_rulo === undefined) gameState.flags.linterna_rulo = false;
+            if (gameState.flags.fragmentos_safe_count === undefined) gameState.flags.fragmentos_safe_count = 0;
+            if (gameState.flags.safe_almacen_open === undefined) gameState.flags.safe_almacen_open = false;
             // --- Fin corrección ---
             
             return true;
@@ -330,14 +374,12 @@ function loadCheckpoint() {
         const savedData = localStorage.getItem(SAVE_KEY_CHECKPOINT);
         if (savedData) {
             gameState = JSON.parse(savedData);
-            saveGameState(); // Sobrescribe el guardado actual con el del checkpoint
+            saveGameState(); 
             
-            // Reinicia el juego manualmente con el estado cargado
             stopGameLoop();
             showScreen('game');
             renderAllUI();
             
-            // Reinicia flags de muerte
             gameState.flags.player_dead = false;
             deathOverlay.classList.add('hidden');
             deathOverlay.classList.remove('player-dying');
@@ -358,7 +400,8 @@ function resetAllData() {
     localStorage.removeItem(SAVE_KEY_CHECKPOINT);
     localStorage.removeItem(SAVE_KEY_DEVICE);
     localStorage.removeItem(SAVE_KEY_THEME);
-    location.reload(); // Recarga la página para un reinicio limpio
+    notificationLog.innerHTML = ''; // Limpiar notificaciones
+    location.reload(); 
 }
 
 function flashSaveIcon() {
@@ -369,18 +412,17 @@ function flashSaveIcon() {
 }
 
 function resetGame() {
-    // Nota: Esta función NO borra dispositivo ni tema, solo el progreso.
     localStorage.removeItem(SAVE_KEY_CURRENT);
     localStorage.removeItem(SAVE_KEY_CHECKPOINT);
     
     gameState = {
         location: 'sala_vigilancia',
         previousLocation: 'sala_vigilancia',
-        difficulty: 'medium', // Dificultad por defecto
+        difficulty: 'medium', 
         inventory: {},
         roomNoise: {
             'sala_vigilancia': 0, 'pasillo_este_hub': 0, 'almacen': 0, 
-            'oficina_seguridad': 0, 'sotano': 0
+            'oficina_seguridad': 0, 'sotano': 0, 'sala_vigilancia_secreta': 0
         },
         playerStats: { 
             vida: 100, 
@@ -393,6 +435,7 @@ function resetGame() {
             vida: 100, 
             hambre: 100, 
             agua: 100,
+            bateria: 0, 
             healing: { active: false, remaining: 0, perSecond: 0 }
         },
         flags: {
@@ -403,7 +446,13 @@ function resetGame() {
             rulo_rejected_join: false,
             rulo_dead: false,
             pasillo_este_route_chosen: false,
-            player_dead: false
+            player_dead: false,
+            hab_secreta_unlocked: false,
+            linterna_found: false,
+            linterna_rulo: false,
+            fragmentos_safe_count: 0, // Contará cuántos tienes (A, B, C)
+            safe_almacen_open: false,
+            safe_code: "4815" // Código estático por ahora (Parte 1)
         },
         unlockedLocations: ['sala_vigilancia'],
         monsterPresent: false,
@@ -413,7 +462,7 @@ function resetGame() {
         ruloAlertActive: false,
         ruloAlertSkill: 0.7,
         roomCounters: {
-            'sala_vigilancia': 0, 'pasillo_este_hub': 0, 'almacen': 0, 'oficina_seguridad': 0
+            'sala_vigilancia': 0, 'pasillo_este_hub': 0, 'almacen': 0, 'oficina_seguridad': 0, 'sala_vigilancia_secreta': 0
         }
     };
     saveGameState();
@@ -428,6 +477,9 @@ function showScreen(screenId) {
     gameScreen.style.display = 'none';
     deviceSelectOverlay.style.display = 'none';
     
+    // BUGFIX: Ocultar la transición de noche por si acaso
+    nightTransitionOverlay.classList.add('hidden');
+    
     const gameMenuBtn = $('#game-back-to-menu-btn');
     
     if (screenId === 'main') mainMenu.style.display = 'flex';
@@ -436,7 +488,6 @@ function showScreen(screenId) {
     if (screenId === 'game') gameScreen.style.display = 'flex';
     if (screenId === 'device_select') deviceSelectOverlay.style.display = 'flex';
     
-    // Controla el botón de "MENÚ" dentro del juego
     if (gameMenuBtn) {
         if (screenId === 'game') gameMenuBtn.classList.remove('hidden');
         else gameMenuBtn.classList.add('hidden');
@@ -489,6 +540,7 @@ function startGameFromMenu() {
     
     if (isContinue && loadGameState()) {
         // --- Cargar Partida ---
+        // BUGFIX: No mostrar transición al continuar
         showScreen('game');
         renderAllUI();
         showNode(gameState.location);
@@ -501,24 +553,44 @@ function startGameFromMenu() {
 }
 
 function selectDifficulty(difficulty) {
-    resetGame(); // Empieza un estado limpio
+    resetGame(); 
     gameState.difficulty = difficulty;
-    saveGameState(); // Guarda el estado inicial con la dificultad
+    // PARTE 2: Aquí se generarían los códigos aleatorios
+    // gameState.flags.safe_code = generateRandomCode();
+    saveGameState(); 
     
-    // Inicia el juego
-    showScreen('game');
-    renderAllUI();
-    showNode(gameState.location); // Muestra 'sala_vigilancia'
-    startGameLoop();
+    // BUGFIX: Inicia el juego CON la transición
+    showNightTransition('NOCHE 1', () => {
+        showScreen('game');
+        renderAllUI();
+        showNode(gameState.location); 
+        startGameLoop();
+    });
+}
+
+// Transición de Noche
+function showNightTransition(text, onCompleteCallback) {
+    nightTransitionText.textContent = text;
+    nightTransitionText.dataset.text = text;
+    
+    nightTransitionOverlay.classList.remove('hidden', 'fade-out');
+    
+    setTimeout(() => {
+        nightTransitionOverlay.classList.add('fade-out');
+    }, 3000); 
+    
+    setTimeout(() => {
+        nightTransitionOverlay.classList.add('hidden');
+        onCompleteCallback();
+    }, 5000); 
 }
 
 function goToMenu() {
     stopGameLoop();
     if (gameScreen.style.display === 'flex') {
-        saveGameState(); // Solo guarda si salimos *desde* el juego
+        saveGameState(); 
     }
     showScreen('main');
-    // Actualiza el botón de "Jugar/Continuar"
     if (localStorage.getItem(SAVE_KEY_CURRENT)) {
         $('#play-btn').textContent = 'Continuar';
     } else {
@@ -530,7 +602,7 @@ function goToMenu() {
 
 function startGameLoop() {
     if (gameLoopInterval) clearInterval(gameLoopInterval);
-    gameLoopInterval = setInterval(updateGameLoop, 1000); // 1 vez por segundo
+    gameLoopInterval = setInterval(updateGameLoop, 1000); 
 }
 
 function stopGameLoop() {
@@ -539,36 +611,35 @@ function stopGameLoop() {
 }
 
 function isGamePaused() {
-    // El juego se pausa si hay un modal abierto O un minijuego activo
     return !backpackModal.classList.contains('hidden') ||
            !playerStatsModal.classList.contains('hidden') ||
            !ruloStatsModal.classList.contains('hidden') ||
            !confirmModal.classList.contains('hidden') ||
+           !noteReaderModal.classList.contains('hidden') || 
+           !noiseMinigameSelectModal.classList.contains('hidden') || 
+           !safeKeypadModal.classList.contains('hidden') || // NUEVO
            calmGameActive ||
            fuseGameActive ||
-           gameState.monsterPresent || // Pausa durante el ataque
-           gameState.flags.player_dead; // Pausa si está muerto
+           resonanceGameActive || 
+           gameState.monsterPresent || 
+           gameState.flags.player_dead; 
 }
 
 function updateGameLoop() {
     if (isGamePaused()) {
-        // Si el juego está pausado, solo actualizamos la UI de los modales
         updateStatsModalRealtime();
         return;
     }
 
-    // --- Lógica de Stats del Jugador ---
     updatePlayerStatsDecay();
     updatePlayerHealing();
     updateAnsiedad();
     
-    // --- Lógica de Stats de Rulo ---
     if (gameState.flags.rulo_joins && !gameState.flags.rulo_dead) {
         updateRuloStatsDecay();
         updateRuloHealing();
     }
 
-    // --- Lógica del Entorno ---
     if (gameState.ruloAlertCooldown > 0) {
         gameState.ruloAlertCooldown--;
     }
@@ -578,34 +649,29 @@ function updateGameLoop() {
         checkMonsterSpawn();
     }
     
-    // --- Renderizado de UI ---
     renderNoiseBar();
     renderPlayerState();
     renderMonsterProb();
-    updateStatsModalRealtime(); // Actualiza modales si están abiertos
+    updateStatsModalRealtime(); 
 }
 
 function updatePlayerStatsDecay() {
     const stats = gameState.playerStats;
-    // Tasa de hambre/agua aumenta si la vida es baja
     let lifeFactor = (stats.vida < 50) ? 1.5 : 1.0;
     lifeFactor = (stats.vida < 25) ? 2.0 : lifeFactor;
     
-    // Tasas base por segundo
     let hungerRate = (0.05 * lifeFactor);
     let waterRate = (0.08 * lifeFactor);
     
     updatePlayerStat('hambre', -hungerRate);
     updatePlayerStat('agua', -waterRate);
     
-    // Penalización por hambre/sed
     let damage = 0;
     if (stats.hambre <= 0) damage += 0.1;
     if (stats.agua <= 0) damage += 0.2;
     
-    // Daño por hambre/sed aumenta con ansiedad
     if (damage > 0) {
-        let anxietyFactor = 1 + (stats.ansiedad / 100); // de 1x a 2x
+        let anxietyFactor = 1 + (stats.ansiedad / 100);
         updatePlayerStat('vida', -(damage * anxietyFactor));
     }
 }
@@ -614,44 +680,45 @@ function updateRuloStatsDecay() {
     const stats = gameState.ruloStats;
     let lifeFactor = (stats.vida < 50) ? 1.5 : 1.0;
     
-    let hungerRate = (0.04 * lifeFactor); // Rulo consume un poco menos
+    let hungerRate = (0.04 * lifeFactor);
     let waterRate = (0.06 * lifeFactor);
     
     updateRuloStat('hambre', -hungerRate);
     updateRuloStat('agua', -waterRate);
     
-    // Rulo no recibe daño por hambre/sed, pero se va (manejado en updateRuloStat)
+    if (gameState.flags.linterna_rulo && stats.bateria > 0) {
+        updateRuloStat('bateria', -0.5); // 1% cada 2 segundos
+    }
 }
 
 function updateAnsiedad() {
     const stats = gameState.playerStats;
     let anxietyChange = 0;
     
-    // Hambre/Sed aumentan ansiedad
     if (stats.hambre < 30) anxietyChange += 0.1;
     if (stats.agua < 30) anxietyChange += 0.15;
     
-    // Ruido bajo o Rulo calman
     if (gameState.roomNoise[gameState.location] < 15) {
         anxietyChange -= 0.1;
     } else if (gameState.flags.rulo_joins && !gameState.flags.rulo_dead) {
-        anxietyChange -= 0.05; // Rulo ayuda, pero menos que el silencio
+        anxietyChange -= 0.05; 
     }
     
     updatePlayerStat('ansiedad', anxietyChange);
 
-    // Penalización por ansiedad alta
     if (stats.ansiedad >= 100) {
-        updatePlayerStat('vida', -0.2); // Daño por pánico
-        if (Math.random() < 0.01 && gameState.flags.rulo_joins) { // 1% de prob por segundo
-            ruloLeaves("ansiedad");
-        }
+        updatePlayerStat('vida', -0.2); 
+    }
+    
+    if (stats.ansiedad >= 100 && !calmGameActive) {
+        logNotification("¡PÁNICO! ¡No puedes respirar!", 'scare');
+        startCalmMinigame(); 
     }
 }
 
 function ruloLeaves(reason) {
     gameState.flags.rulo_joins = false;
-    gameState.flags.rulo_rejected_join = true; // No volverá
+    gameState.flags.rulo_rejected_join = true; 
     
     let msg = "Rulo ya no puede más. Te ha abandonado.";
     if (reason === "ansiedad") {
@@ -676,34 +743,30 @@ function ruloDies() {
     logNotification("¡RULO HA MUERTO!", 'scare');
     logNotification("La dificultad del juego ha aumentado.", 'scare');
     
-    // Limpia el HUD de Rulo
     renderRuloState();
     renderMonsterProb();
 }
 
 function handlePlayerDeath() {
-    if (gameState.flags.player_dead) return; // Evitar doble trigger
+    if (gameState.flags.player_dead) return; 
     
     gameState.flags.player_dead = true;
     stopGameLoop();
     
     deathOverlay.classList.remove('hidden');
-    deathOverlay.classList.add('player-dying'); // Activa animación CSS
+    deathOverlay.classList.add('player-dying'); 
     
     setTimeout(() => {
-        loadCheckpoint(); // Carga el último guardado
-        // loadCheckpoint se encarga de reiniciar el loop y mostrar el nodo
+        loadCheckpoint(); 
         
-        // Muestra mensajes de muerte DESPUÉS de cargar
         setTimeout(() => {
             logNotification("Moriste.", 'scare');
             typeText("...¿Qué pasó?...", true, () => {
-                // Muestra las opciones de la sala cargada
                 renderOptions(GAME_CONTENT[gameState.location].options, gameState.location);
             });
-        }, 200); // Pequeño delay para que la UI de carga termine
+        }, 200); 
 
-    }, 4000); // Duración de la animación de muerte
+    }, 4000); 
 }
 
 
@@ -713,8 +776,6 @@ function typeText(fullText, clearLog = false, onComplete = () => {}) {
     if (isTyping) {
         finishTyping(true); 
     }
-    
-    // NO pausar el juego, solo manejar el tipeo
     
     if (clearLog) {
         narrativeLog.innerHTML = '';
@@ -816,7 +877,6 @@ function showNode(nodeId) {
         return;
     }
     
-    // Manejo de lógica OnEnter antes de mostrar texto
     if (node.onEnter) {
         let result = true;
         if (node.onEnter.params) {
@@ -824,13 +884,11 @@ function showNode(nodeId) {
         } else {
             result = window[node.onEnter.func]();
         }
-        // Si onEnter devuelve false (p.ej. check de mochila), detenemos la navegación
         if (result === false) {
             return;
         }
     }
 
-    // Si es un Hub (sala principal), actualiza la ubicación y el checkpoint
     if (node.isLocationHub) {
         gameState.previousLocation = gameState.location;
         gameState.location = nodeId;
@@ -845,15 +903,14 @@ function showNode(nodeId) {
         gameEffects[node.effect.name](node.effect.params);
     }
     
-    renderNoiseBar(); // Renderiza el ruido de la sala (gameState.location)
+    renderNoiseBar(); 
     
     typeText(node.text, true, () => {
-        // Pasamos el nodeId actual para que las opciones sepan dónde están
         renderOptions(node.options, nodeId);
     });
     
     if (node.isLocationHub) {
-        renderLocations(); // Solo actualiza los botones de sala si estamos en un hub
+        renderLocations(); 
     }
 }
 
@@ -881,7 +938,6 @@ function renderOptions(options, nodeId) {
         optEl.onclick = () => handleOptionClick(option, nodeId);
         optionsContainer.appendChild(optEl);
     });
-    // Scroll forzoso para asegurar que se vean las opciones
     narrativeLog.scrollTop = narrativeLog.scrollHeight;
     optionsContainer.scrollIntoView({ behavior: 'smooth', block: 'end' });
 }
@@ -895,12 +951,15 @@ function handleOptionClick(option, nodeId) {
         
         if (count >= max) {
             typeText("No queda nada más por aquí.", true, () => {
-                // Vuelve a renderizar las opciones del nodo actual
                 renderOptions(GAME_CONTENT[nodeId].options, nodeId);
             });
             return;
         }
         gameState.roomCounters[option.countsSearch]++;
+        
+        // BUGFIX: La regla 'pasillo_este_route_chosen' NO debe activarse
+        // si la opción es *solo* de búsqueda (countsSearch) y no de ruta.
+        // La acción 'explorarPasillo' ya NO activa el flag.
     }
     
     if (option.action) {
@@ -938,6 +997,7 @@ function renderLocations() {
     locationMenu.innerHTML = '';
     const locations = [
         { id: 'sala_vigilancia', name: 'Sala de Vigilancia' },
+        { id: 'sala_vigilancia_secreta', name: 'Hab. Secreta' }, 
         { id: 'pasillo_este_hub', name: 'Pasillo Este' },
         { id: 'almacen', name: 'Almacén' },
         { id: 'oficina_seguridad', name: 'Oficina Seguridad' },
@@ -952,8 +1012,8 @@ function renderLocations() {
         locBtn.textContent = loc.name;
         
         if (isLocked) {
-            locBtn.className = 'location-btn locked';
-            locBtn.disabled = true;
+            // BUGFIX: No renderizar el botón si está bloqueado
+            return; 
         } else {
             locBtn.className = 'location-btn';
             if (gameState.location === loc.id) {
@@ -995,6 +1055,12 @@ function renderPlayerState() {
 }
 
 function renderRuloState() {
+    if (gameState.flags.rulo_joins && !gameState.flags.rulo_dead) {
+        talkRuloBtn.classList.remove('hidden');
+    } else {
+        talkRuloBtn.classList.add('hidden');
+    }
+    
     if (gameState.flags.rulo_dead) {
         ruloHud.classList.remove('hidden');
         ruloStateUI.textContent = "MUERTO";
@@ -1008,14 +1074,17 @@ function renderRuloState() {
     }
     
     ruloHud.classList.remove('hidden');
-    const hp = gameState.ruloStats.vida;
+    const stats = gameState.ruloStats;
     let stateText = "OK";
     let stateClass = "life-ok";
     
-    if (hp <= 40) { stateText = "HERIDO"; stateClass = "life-danger"; }
-    else if (hp <= 70) { stateText = "DAÑADO"; stateClass = "life-low"; }
-    else if (gameState.ruloStats.hambre <= 40 || gameState.ruloStats.agua <= 40) {
+    if (stats.vida <= 40) { stateText = "HERIDO"; stateClass = "life-danger"; }
+    else if (stats.vida <= 70) { stateText = "DAÑADO"; stateClass = "life-low"; }
+    else if (stats.hambre <= 40 || stats.agua <= 40) {
         stateText = "FATIGADO"; stateClass = "life-low";
+    }
+    else if (gameState.flags.linterna_rulo && stats.bateria <= 20) {
+        stateText = "BATERÍA BAJA"; stateClass = "life-low";
     }
     
     ruloStateUI.textContent = stateText;
@@ -1028,7 +1097,6 @@ function renderRuloState() {
 function showConfirmationModal(message, onConfirmCallback) {
     $('#confirm-message').textContent = message;
     
-    // Limpia listeners antiguos y añade nuevos
     const confirmBtn = $('#confirm-btn-yes');
     const cancelBtn = $('#confirm-btn-no');
     
@@ -1044,7 +1112,7 @@ function showConfirmationModal(message, onConfirmCallback) {
     });
     newCancelBtn.addEventListener('click', closeAllModals);
     
-    closeAllModals(); // Cierra otros modales
+    closeAllModals(); 
     confirmModal.classList.remove('hidden');
 }
 
@@ -1072,7 +1140,6 @@ function togglePlayerStats() {
 }
 
 function toggleRuloStats() {
-    // Puedes ver stats de Rulo incluso si no te acompaña, pero sí está despierto
     if (!gameState.flags.rulo_awake || gameState.flags.rulo_dead) return;
     
     if (ruloStatsModal.classList.contains('hidden')) {
@@ -1089,28 +1156,50 @@ function closeAllModals() {
     playerStatsModal.classList.add('hidden');
     ruloStatsModal.classList.add('hidden');
     confirmModal.classList.add('hidden');
+    noteReaderModal.classList.add('hidden'); 
+    noiseMinigameSelectModal.classList.add('hidden'); 
+    safeKeypadModal.classList.add('hidden');
     
-    // No cerrar minijuegos desde aquí
+    // Detener minijuegos si se cierran
+    if (fuseGameActive) stopFuseMinigame(true); // true = cancelar
+    if (resonanceGameActive) stopResonanceMinigame(true); 
+    if (calmGameActive) stopCalmMinigame(true);
 }
 
 function handleNarrativeClick() {
-    // No hacer nada si un minijuego o modal está activo
-    if (calmGameActive || fuseGameActive || !backpackModal.classList.contains('hidden')) return; 
+    if (isGamePaused()) return; 
     closeAllModals();
     skipTyping();
 }
 
 function renderBackpack() {
     backpackList.innerHTML = '';
+    backpackNotesList.innerHTML = ''; 
+    
     const items = Object.values(gameState.inventory);
+    let notesFound = 0;
+    let fragmentsFound = 0;
     
     if (items.length === 0) {
         backpackList.innerHTML = '<div class="backpack-item">Vacía...</div>';
-        return;
     }
-    
+
     items.forEach(item => {
-        if (item.id === 'mochila') return; // No mostrar la mochila dentro de sí misma
+        if (item.isNote) {
+            notesFound++;
+            const noteEl = document.createElement('div');
+            noteEl.className = 'backpack-note-item';
+            noteEl.textContent = item.name;
+            noteEl.onclick = () => showNote(item.id);
+            backpackNotesList.appendChild(noteEl);
+            
+            if (item.id === 'fragmento_a' || item.id === 'fragmento_b' || item.id === 'fragmento_c') {
+                fragmentsFound++;
+            }
+            return; 
+        }
+        
+        if (item.id === 'mochila') return; 
 
         const el = document.createElement('div');
         el.className = 'backpack-item flex justify-between items-center';
@@ -1127,20 +1216,28 @@ function renderBackpack() {
         const actionsEl = document.createElement('div');
         actionsEl.className = 'backpack-item-actions';
         
-        if (item.consumable) {
+        if (item.id === 'linterna' && !gameState.flags.linterna_rulo) {
+            const giveBtn = document.createElement('button');
+            giveBtn.textContent = 'Dar a Rulo';
+            giveBtn.className = 'btn-action';
+            giveBtn.onclick = () => useItem(item.id, 'rulo');
+            actionsEl.appendChild(giveBtn);
+        }
+        else if (item.consumable) {
             const useBtn = document.createElement('button');
             useBtn.textContent = 'Usar';
             useBtn.className = 'btn-action';
             useBtn.onclick = () => useItem(item.id, 'player');
             actionsEl.appendChild(useBtn);
             
-            // Solo puedes dar cosas a Rulo si está despierto y no muerto
             if (gameState.flags.rulo_awake && !gameState.flags.rulo_dead) {
-                const giveBtn = document.createElement('button');
-                giveBtn.textContent = 'Dar a Rulo';
-                giveBtn.className = 'btn-action';
-                giveBtn.onclick = () => useItem(item.id, 'rulo');
-                actionsEl.appendChild(giveBtn);
+                if (item.id === 'barrita' || item.id === 'botella_agua' || item.id === 'vendaje' || item.id === 'bateria') {
+                    const giveBtn = document.createElement('button');
+                    giveBtn.textContent = 'Dar a Rulo';
+                    giveBtn.className = 'btn-action';
+                    giveBtn.onclick = () => useItem(item.id, 'rulo');
+                    actionsEl.appendChild(giveBtn);
+                }
             }
         }
         
@@ -1148,6 +1245,69 @@ function renderBackpack() {
         el.appendChild(actionsEl);
         backpackList.appendChild(el);
     });
+    
+    if (notesFound === 0) {
+        backpackNotesList.innerHTML = '<div class="backpack-note-item" style="cursor: default; color: var(--theme-text-dim);">No has encontrado notas.</div>';
+    }
+    
+    // Botón de Combinar
+    if (fragmentsFound > 1) {
+        const combineBtn = document.createElement('button');
+        combineBtn.textContent = 'Combinar Fragmentos';
+        combineBtn.className = 'btn-action w-full mt-2';
+        combineBtn.onclick = combineFragments;
+        backpackNotesList.appendChild(combineBtn);
+    }
+}
+
+// Lector de Notas
+function showNote(noteId) {
+    const note = NOTES_CONTENT[noteId];
+    if (!note) {
+        noteReaderTitle.textContent = "ERROR";
+        noteReaderContent.textContent = "No se pudo cargar el contenido de la nota.";
+        return;
+    }
+    
+    let title = note.title;
+    let content = note.content;
+    
+    if (noteId === 'fragmentos_combinacion') {
+        content = `Has unido los fragmentos. El texto revela:\n\n"${getSafeCodeHint()}"`;
+    }
+    
+    noteReaderTitle.textContent = `[ ${title} ]`;
+    noteReaderContent.innerHTML = content.replace(/\n/g, '<br>'); 
+    
+    closeAllModals(); 
+    noteReaderModal.classList.remove('hidden'); 
+}
+
+// Combinar Fragmentos
+function combineFragments() {
+    // Comprobar si ya están combinados
+    if (hasItem('fragmentos_combinacion')) {
+        logNotification("Ya has combinado los fragmentos.", 'info');
+        closeAllModals();
+        showNote('fragmentos_combinacion');
+        return;
+    }
+    
+    // Comprobar si tiene los 3
+    if (hasItem('fragmento_a') && hasItem('fragmento_b') && hasItem('fragmento_c')) {
+        removeItem('fragmento_a', 1);
+        removeItem('fragmento_b', 1);
+        removeItem('fragmento_c', 1);
+        
+        addItem('fragmentos_combinacion', 'Combinación Parcial', 'L', 1, false, true);
+        logNotification("Has juntado todos los fragmentos. Forman una pista legible.", 'item');
+        
+        closeAllModals();
+        showNote('fragmentos_combinacion'); // Mostrar la nota combinada
+    } else {
+        logNotification("Aún te faltan fragmentos para combinar.", 'info');
+        closeAllModals();
+    }
 }
 
 // Actualiza los modales de stats en tiempo real (llamado por el game loop)
@@ -1166,6 +1326,7 @@ function createStatBar(label, value, colorClass, buttonHtml = '') {
     if (colorClass === 'herido') color = 'var(--state-herido)';
     else if (colorClass === 'hambre') color = 'var(--state-hambre)';
     else if (colorClass === 'ansioso') color = 'var(--state-ansioso)';
+    else if (colorClass === 'bateria') color = '#00e0e0'; 
     else color = 'var(--state-calm)';
     
     return `
@@ -1186,11 +1347,9 @@ function renderPlayerStatsModal() {
     let html = '';
     html += createStatBar('Vida', stats.vida, (stats.vida <= 40 ? 'herido' : (stats.vida <= 70 ? 'hambre' : 'calm')));
     
-    // Botón de calmar solo si ansiedad > 50%
     const calmBtnHtml = `<button id="start-calm-btn" class="btn-action">Calmar</button>`;
     html += createStatBar('Ansiedad', stats.ansiedad, (stats.ansiedad >= 70 ? 'herido' : (stats.ansiedad >= 40 ? 'ansioso' : 'calm')), (stats.ansiedad > 50 ? calmBtnHtml : ''));
     
-    // Hambre y Agua (invertidos, menos es malo)
     html += createStatBar('Hambre', stats.hambre, (stats.hambre <= 40 ? 'hambre' : 'calm'));
     html += createStatBar('Agua', stats.agua, (stats.agua <= 40 ? 'hambre' : 'calm'));
     
@@ -1211,6 +1370,10 @@ function renderRuloStatsModal() {
     html += createStatBar('Hambre', stats.hambre, (stats.hambre <= 40 ? 'hambre' : 'calm'));
     html += createStatBar('Agua', stats.agua, (stats.agua <= 40 ? 'hambre' : 'calm'));
     
+    if (gameState.flags.linterna_found) {
+        html += createStatBar('Batería (Linterna)', stats.bateria, (stats.bateria <= 20 ? 'herido' : 'bateria'));
+    }
+    
     ruloStatsList.innerHTML = html;
 }
 
@@ -1219,7 +1382,7 @@ function useItem(itemId, target) {
     
     const item = gameState.inventory[itemId];
     let feedbackText = "";
-    let consumed = true; // La mayoría de items se consumen
+    let consumed = true;
     
     switch (itemId) {
         case 'barrita':
@@ -1237,11 +1400,33 @@ function useItem(itemId, target) {
             let healing = (target === 'player') ? gameState.playerStats.healing.active : gameState.ruloStats.healing.active;
             
             if (targetHP < 100 && !healing) {
-                startHealing(target); // Inicia curación gradual
+                startHealing(target); 
                 feedbackText = (target === 'player' ? "Aplicas" : "Rulo aplica") + " el vendaje.";
             } else {
                 feedbackText = (target === 'player' ? "No necesitas" : "Rulo no necesita") + " curarse ahora.";
-                consumed = false; // No consumir si no se usa
+                consumed = false; 
+            }
+            break;
+        case 'linterna':
+            if (target === 'rulo' && !gameState.flags.linterna_rulo) {
+                gameState.flags.linterna_rulo = true;
+                gameState.ruloStats.bateria = 100; 
+                feedbackText = "Le das la linterna a Rulo. La inspecciona y la enciende.";
+            } else if (target === 'rulo' && gameState.flags.linterna_rulo) {
+                feedbackText = "Rulo ya tiene la linterna.";
+            } else {
+                feedbackText = "No puedes usarla tú. Rulo parece saber qué hacer con ella.";
+            }
+            consumed = false; 
+            break;
+        case 'bateria':
+            if (target === 'rulo' && gameState.flags.linterna_found) {
+                gameState.flags.linterna_rulo = true; 
+                updateRuloStat('bateria', 100); 
+                feedbackText = "Rulo cambia la batería de la linterna. Vuelve a funcionar.";
+            } else {
+                feedbackText = "No parece tener uso por ahora.";
+                consumed = false;
             }
             break;
         default:
@@ -1255,7 +1440,6 @@ function useItem(itemId, target) {
     closeAllModals();
     logNotification(feedbackText, 'info');
     
-    // Actualiza la mochila si está abierta
     if (!backpackModal.classList.contains('hidden')) {
         renderBackpack();
     }
@@ -1264,8 +1448,6 @@ function useItem(itemId, target) {
 // --- EFECTOS DE JUEGO Y NOTIFICACIONES ---
 
 function logNotification(text, type = 'info') {
-    // Si el texto es sobre el monstruo y el diálogo está activo,
-    // esta función se asegura de que no interrumpa el diálogo.
     const el = document.createElement('div');
     el.className = 'notification-item';
     
@@ -1273,18 +1455,20 @@ function logNotification(text, type = 'info') {
     else if (type === 'sfx') el.classList.add('notification-sfx');
     else if (type === 'scare') el.classList.add('notification-scare');
     else if (type === 'item') el.classList.add('notification-item-found');
-    else el.classList.add('notification-info'); // 'info'
+    else el.classList.add('notification-info'); 
     
     el.textContent = text;
     
-    notificationLog.appendChild(el);
-    notificationLog.scrollTop = notificationLog.scrollHeight;
+    // BUGFIX: Añadir al principio y limitar
+    notificationLog.prepend(el);
+    if (notificationLog.children.length > NOTIFICATION_LIMIT) {
+        notificationLog.removeChild(notificationLog.lastChild);
+    }
 }
 
-// gameEffects ahora solo loguea en notificaciones y añade efectos visuales
 const gameEffects = {
     playScare: ({ text, shake }) => {
-        logNotification(text, 'scare'); // A la columna de notificaciones
+        logNotification(text, 'scare'); 
         if (shake) {
             appContainer.classList.add('shake');
             setTimeout(() => appContainer.classList.remove('shake'), 300);
@@ -1292,10 +1476,10 @@ const gameEffects = {
         updatePlayerStat('ansiedad', 25);
     },
     playSfx: (text) => {
-        logNotification(text, 'sfx'); // A la columna de notificaciones
+        logNotification(text, 'sfx'); 
     },
     playStatic: (text) => {
-        logNotification(text, 'static'); // A la columna de notificaciones
+        logNotification(text, 'static'); 
     }
 };
 
@@ -1303,7 +1487,7 @@ const gameEffects = {
 
 function calculateMonsterProb() {
     if (gameState.flags.rulo_dead) {
-        return 99; // Probabilidad máxima si Rulo muere
+        return 99; 
     }
 
     const noise = gameState.roomNoise[gameState.location] || 0;
@@ -1314,13 +1498,11 @@ function calculateMonsterProb() {
     if (gameState.difficulty === 'hard') diffMultiplier = 1.5;
     if (gameState.difficulty === 'nightmare') diffMultiplier = 2.2;
 
-    // Fórmula de probabilidad: Ruido es el factor principal, Ansiedad el secundario
     let prob = (noise * 0.7) + (anxiety * 0.3);
     prob *= diffMultiplier;
     
-    // Rulo reduce la probabilidad (si te acompaña)
     if (gameState.flags.rulo_joins) {
-        prob *= 0.7; // Rulo reduce la prob en 30%
+        prob *= 0.7; 
     }
     
     return Math.min(99, Math.max(0, Math.round(prob)));
@@ -1329,15 +1511,8 @@ function calculateMonsterProb() {
 function renderMonsterProb() {
     const prob = calculateMonsterProb();
     
-    // Actualiza el medidor del Header (siempre visible si Rulo acompaña)
-    if (gameState.flags.rulo_joins) {
-        monsterProbHud.classList.remove('hidden');
-        monsterProbValue.textContent = `${prob}%`;
-    } else {
-        monsterProbHud.classList.add('hidden');
-    }
+    monsterProbHud.classList.add('hidden');
 
-    // Actualiza el medidor de la columna de Notificaciones
     if (gameState.flags.rulo_joins) {
         ruloProbHeader.classList.remove('hidden');
         ruloProbHeader.innerHTML = `PROBABILIDAD: <span class="font-bold text-lg" style="color: var(--theme-scare);">${prob}%</span>`;
@@ -1360,7 +1535,6 @@ function checkRuloAlert() {
         changeRoomNoise(gameState.location, -8);
         logNotification('RULO: “¡ALGO NO VA BIEN, CÁLLATE!”', 'sfx');
         
-        // Intenta iniciar el minijuego de calma
         startCalmMinigame();
     }
 }
@@ -1368,9 +1542,7 @@ function checkRuloAlert() {
 function checkMonsterSpawn() {
     if (gameState.monsterPresent || gameState.monsterApproaching) return;
 
-    // Probabilidad de spawn real (basada en la prob. mostrada)
     const displayProb = calculateMonsterProb();
-    // Convertimos la prob. (0-99) a una prob. por segundo (0.0 a 0.05)
     const finalProbPerSecond = (displayProb / 100) * 0.05; 
     
     if (Math.random() < finalProbPerSecond) {
@@ -1380,17 +1552,12 @@ function checkMonsterSpawn() {
 
 function initiateMonsterApproach() {
     gameState.monsterApproaching = true;
-    
-    // No pausar el juego, solo registrar el acercamiento
-    
     logNotification("...una sombra se alarga bajo la puerta...", 'sfx');
-    
     const delay = 1000 + (Math.random() * 1000);
     setTimeout(spawnMonster, delay);
 }
 
 function spawnMonster() {
-    // No spawnear si el jugador justo abrió un modal
     if (isGamePaused()) {
         gameState.monsterPresent = false;
         gameState.monsterApproaching = false;
@@ -1408,20 +1575,17 @@ function spawnMonster() {
     let ruloBonus = 1.0;
     if (gameState.flags.rulo_joins && !gameState.flags.rulo_dead && gameState.ruloStats.vida > 50) ruloBonus = 1.15;
     
-    // Modificador de dificultad (tamaño del botón)
     let diffFactor = 1.0; // medium
-    if (gameState.difficulty === 'easy') diffFactor = 1.25; // 25% más grande
-    if (gameState.difficulty === 'hard') diffFactor = 0.75; // 25% más pequeño
-    if (gameState.difficulty === 'nightmare') diffFactor = 0.5; // 50% más pequeño
+    if (gameState.difficulty === 'easy') diffFactor = 1.25; 
+    if (gameState.difficulty === 'hard') diffFactor = 0.75; 
+    if (gameState.difficulty === 'nightmare') diffFactor = 0.5; 
 
     const currentRoomNoise = gameState.roomNoise[gameState.location] || 0;
 
-    // FÓRMULA DE TAMAÑO
     const sizeFactor = Math.max(0.4, Math.min(1.8, 0.6 + (currentRoomNoise / 200) - statePenalty)) * ruloBonus * diffFactor;
     const baseSize = 80;
     const size = Math.round(baseSize * sizeFactor);
     
-    // FÓRMULA DE TIEMPO
     const normalizedFactor = (sizeFactor - 0.4) / (1.8 - 0.4);
     reactionWindowMs = (1000 + (normalizedFactor * 2000)) * ruloBonus;
     
@@ -1429,7 +1593,6 @@ function spawnMonster() {
     const rectWidth = narrativeRect.width || narrativeContainer.clientWidth;
     const rectHeight = narrativeRect.height || narrativeContainer.clientHeight;
     
-    // Asegurarse de que el botón no aparezca sobre la columna de notificaciones
     const usableWidth = rectWidth * (document.body.classList.contains('device-mobile') ? 1.0 : 0.66);
     
     const btnX = Math.random() * (usableWidth - size - 40) + 20;
@@ -1453,7 +1616,6 @@ function updateReactionTimer() {
     const remaining = Math.max(0, reactionWindowMs - elapsed);
     reactionBtn.textContent = (remaining / 1000).toFixed(1);
     
-    // Lógica de reducción de tamaño (sin cambios)
     const timePenalty = (elapsed / 10000);
     let statePenalty = 0;
     if (gameState.playerStats.ansiedad >= 70) statePenalty += 0.2;
@@ -1484,8 +1646,6 @@ function clickReactionBtn() {
     updatePlayerStat('ansiedad', -30);
     
     logNotification("...un movimiento rápido. El Eco retrocede. Estás a salvo.", 'sfx');
-    
-    // No es necesario llamar a resumeGame(), el loop principal ya no se detiene
 }
 
 function failReaction() {
@@ -1509,8 +1669,6 @@ function failReaction() {
     }
     
     logNotification(`¡DEMASIADO TARDE! El Eco te roza. Pierdes tu [${lostItem || 'cordura'}].`, 'scare');
-    
-    // No es necesario llamar a resumeGame()
 }
 
 // --- MINIJUEGO DE CALMA (Ansiedad) ---
@@ -1518,17 +1676,14 @@ function failReaction() {
 function startCalmMinigame() {
     if (calmGameActive) return;
     
-    // Condición: Ansiedad > 50%
     if (gameState.playerStats.ansiedad <= 50) {
         logNotification("No te sientes lo suficientemente ansioso como para necesitar esto.", 'info');
         return;
     }
     
     calmGameActive = true;
-    // No pausar el game loop, la pausa se maneja con isGamePaused()
     closeAllModals();
     
-    // Configuración de dificultad
     let targetWidthPercent = 25; // medium
     calmMarkerSpeed = 2.5;
     if (gameState.difficulty === 'easy') { targetWidthPercent = 35; calmMarkerSpeed = 2.0; }
@@ -1548,8 +1703,8 @@ function startCalmMinigame() {
     calmMinigame.classList.remove('hidden');
     
     window.addEventListener('keydown', handleCalmKey);
-    calmGameInterval = setInterval(updateCalmMarker, 16); // ~60fps
-    calmGameTimeout = setTimeout(failCalmMinigame, 8000); // 8 segundos para intentarlo
+    calmGameInterval = setInterval(updateCalmMarker, 16); 
+    calmGameTimeout = setTimeout(failCalmMinigame, 8000); 
 }
 
 function updateCalmMarker() {
@@ -1568,18 +1723,15 @@ function updateCalmMarker() {
 function handleCalmKey(e) {
     if (!calmGameActive) return;
     
-    // Solo reacciona a Espacio
     if (e.key === ' ') {
         e.preventDefault();
         checkCalmHit();
     }
-    // Permite skipear texto con Enter
     if (e.key === 'Enter') {
         skipTyping();
     }
 }
 
-// Esta función es llamada por el 'onclick' del HTML en móvil
 function checkCalmHit() {
     if (!calmGameActive) return;
     
@@ -1595,11 +1747,11 @@ function checkCalmHit() {
 
 function successCalmMinigame() {
     logNotification("Respiras hondo. Te sientes más calmado.", 'sfx');
-    updatePlayerStat('ansiedad', -15);
+    updatePlayerStat('ansiedad', -30); 
     
     if (gameState.ruloAlertActive) {
         logNotification("...el peligro parece pasar.", 'sfx');
-        gameState.ruloAlertActive = false; // Éxito en ahuyentar
+        gameState.ruloAlertActive = false; 
     }
     
     stopCalmMinigame();
@@ -1607,12 +1759,16 @@ function successCalmMinigame() {
 
 function failCalmMinigame() {
     logNotification("No logras concentrarte. Tu ansiedad aumenta.", 'scare');
-    updatePlayerStat('ansiedad', 30); // Penalización por fallo
-    // ruloAlertActive se queda en true, aumentando la prob. de spawn
+    updatePlayerStat('ansiedad', 30); 
+    
+    if (gameState.playerStats.ansiedad >= 100 && gameState.flags.rulo_joins) {
+        ruloLeaves("ansiedad");
+    }
+    
     stopCalmMinigame();
 }
 
-function stopCalmMinigame() {
+function stopCalmMinigame(isCancel = false) {
     if (!calmGameActive) return;
     calmGameActive = false;
     
@@ -1622,9 +1778,29 @@ function stopCalmMinigame() {
     
     calmMinigame.classList.add('hidden');
     
-    // El game loop se reanudará automáticamente
+    if (isCancel) {
+         logNotification("Decides no calmarte.", 'info');
+    }
 }
 
+
+// --- MINIJUEGO DE RUIDO (Selección) ---
+
+function showNoiseMinigameSelect() {
+    if (isTyping || isGamePaused() || gameScreen.style.display === 'none') return;
+    
+    const currentNoise = gameState.roomNoise[gameState.location] || 0;
+    if (currentNoise <= 15) {
+        logNotification("El ruido no es lo suficientemente alto como para necesitar recalibración.", 'info');
+        return;
+    }
+    
+    const noiseColor = currentNoise >= 75 ? 'var(--theme-scare)' : (currentNoise >= 50 ? 'var(--theme-agitated)' : 'var(--theme-calm)');
+    noiseSelectCurrentNoise.innerHTML = `Ruido actual: <span class="font-bold" style="color: ${noiseColor};">${Math.round(currentNoise)}</span>`;
+    
+    closeAllModals();
+    noiseMinigameSelectModal.classList.remove('hidden');
+}
 
 // --- MINIJUEGO DE FUSIBLES (Ruido) ---
 
@@ -1638,18 +1814,14 @@ function shuffleArray(array) {
 
 function startFuseMinigame() {
     if (fuseGameActive) return;
-
-    // Condición: Ruido > 15
-    const currentNoise = gameState.roomNoise[gameState.location] || 0;
-    if (currentNoise <= 15) {
-        logNotification("El ruido no es lo suficientemente alto como para necesitar recalibración.", 'info');
-        return;
-    }
     
     fuseGameActive = true;
     fuseGameSequence = [];
+    closeAllModals(); 
     
-    // 1. Generar el puzzle
+    const currentNoise = gameState.roomNoise[gameState.location] || 0;
+    const anxiety = gameState.playerStats.ansiedad || 0;
+    
     const allColors = [
         { id: 'Rojo', class: 'fuse-red' }, 
         { id: 'Azul', class: 'fuse-blue' }, 
@@ -1658,31 +1830,26 @@ function startFuseMinigame() {
         { id: 'Blanco', class: 'fuse-white' }
     ];
     
-    // Determinar Nivel de Dificultad del Puzzle
-    let numFuses = 3; // Fácil
-    if (currentNoise > 30 || gameState.playerStats.ansiedad > 40) numFuses = 4; // Medio
-    if (currentNoise > 60 || gameState.playerStats.ansiedad > 70) numFuses = 5; // Difícil
+    let numFuses = 3; 
+    if (currentNoise > 30 || anxiety > 40) numFuses = 4; 
+    if (currentNoise > 60 || anxiety > 70) numFuses = 5; 
     
     let puzzleColors = shuffleArray([...allColors]).slice(0, numFuses);
     let solution = shuffleArray([...puzzleColors]);
     let options = shuffleArray([...puzzleColors]);
     
-    // Generar Pista (Ej: "Rojo = 3, Azul = 1, Verde = 2")
     let positions = shuffleArray(Array.from({length: numFuses}, (_, i) => i + 1));
     let hint = "PISTA: ";
     hint += solution.map((colorObj, index) => `${colorObj.id} = ${positions[index]}`).join(', ');
     
-    // Asignar solución real basada en la pista
     let solutionWithPositions = solution.map((colorObj, index) => ({
         id: colorObj.id,
         pos: positions[index]
     }));
-    // Ordenar por posición para obtener la solución correcta
     solutionWithPositions.sort((a, b) => a.pos - b.pos);
     const finalSolution = solutionWithPositions.map(item => item.id);
 
-    // 2. Determinar Tiempo Límite
-    let timeLimit = 30; // 30s base en Fácil
+    let timeLimit = 30; // Fácil
     if (gameState.difficulty === 'medium') timeLimit = 25;
     if (gameState.difficulty === 'hard') timeLimit = 20;
     if (gameState.difficulty === 'nightmare') timeLimit = 15;
@@ -1693,15 +1860,13 @@ function startFuseMinigame() {
         solution: finalSolution,
         options: options,
         hint: hint,
-        timeLimit: Math.max(10, timeLimit), // Mínimo 10 seg
+        timeLimit: Math.max(10, timeLimit), 
         baseNoise: currentNoise
     };
 
-    // 3. Renderizar UI
     fuseHintBox.textContent = fuseGameData.hint;
     fuseTimer.textContent = fuseGameData.timeLimit.toFixed(1);
     
-    // Renderizar botones de opciones
     fuseOptionsContainer.innerHTML = '';
     fuseGameData.options.forEach(colorObj => {
         const btn = document.createElement('button');
@@ -1713,12 +1878,11 @@ function startFuseMinigame() {
     
     renderFuseSequence();
     
-    // Mostrar Ruido actual
-    logNotification(`[MINIJUEGO] Ruido de sala actual: ${Math.round(currentNoise)}`, 'info');
+    fuseMinigameModal.dataset.baseNoise = currentNoise;
+    logNotification(`[MINIJUEGO] Ruido de sala (Antes): ${Math.round(currentNoise)}`, 'info');
     
     fuseMinigameModal.classList.remove('hidden');
     
-    // 4. Iniciar Timer
     fuseGameTimer = setInterval(updateFuseTimer, 100);
 }
 
@@ -1726,7 +1890,7 @@ function selectFuse(colorId, buttonEl) {
     if (!fuseGameActive || fuseGameSequence.length >= fuseGameData.solution.length) return;
     
     fuseGameSequence.push(colorId);
-    buttonEl.classList.add('fuse-selected'); // Marcar como usado
+    buttonEl.classList.add('fuse-selected'); 
     buttonEl.disabled = true;
     renderFuseSequence();
 }
@@ -1742,7 +1906,6 @@ function renderFuseSequence() {
 function clearFuseSequence() {
     fuseGameSequence = [];
     renderFuseSequence();
-    // Reactivar botones
     $$('#fuse-options-container .btn-fuse').forEach(btn => {
         btn.classList.remove('fuse-selected');
         btn.disabled = false;
@@ -1750,6 +1913,7 @@ function clearFuseSequence() {
 }
 
 function updateFuseTimer() {
+    if (!fuseGameActive) return;
     fuseGameData.timeLimit -= 0.1;
     fuseTimer.textContent = fuseGameData.timeLimit.toFixed(1);
     
@@ -1783,29 +1947,134 @@ function confirmFuseSequence() {
     }
 }
 
-function stopFuseMinigame() {
+function stopFuseMinigame(isCancel = false) {
     if (!fuseGameActive) return;
     fuseGameActive = false;
     clearInterval(fuseGameTimer);
-    fuseTimer.style.color = 'var(--theme-scare)'; // Reset color
+    fuseTimer.style.color = 'var(--theme-scare)'; 
     fuseMinigameModal.classList.add('hidden');
     clearFuseSequence();
-    // El game loop se reanudará solo
+    
+    if(isCancel) {
+        logNotification("Cancelaste la recalibración.", 'info');
+    }
 }
 
 function successFuseMinigame() {
-    let noiseReduction = 10 + (fuseGameData.baseNoise * 0.3); // Reduce 10 + 30% del ruido actual
+    let noiseReduction = 10 + (fuseGameData.baseNoise * 0.3); 
     changeRoomNoise(gameState.location, -noiseReduction);
-    logNotification(`Éxito. Ruido reducido en ${Math.round(noiseReduction)}.`, 'sfx');
+    logNotification(`Éxito. Ruido reducido en ${Math.round(noiseReduction)}. (Después: ${Math.round(gameState.roomNoise[gameState.location])})`, 'sfx');
     stopFuseMinigame();
 }
 
 function failFuseMinigame(reason) {
-    changeRoomNoise(gameState.location, 10); // Penalización
-    logNotification(`${reason} Sobrecarga. El ruido aumenta.`, 'scare');
+    changeRoomNoise(gameState.location, 10); 
+    logNotification(`${reason} Sobrecarga. El ruido aumenta. (Después: ${Math.round(gameState.roomNoise[gameState.location])})`, 'scare');
     stopFuseMinigame();
 }
 
+// --- MINIJUEGO CADENA DE RESONANCIA ---
+
+function startResonanceMinigame() {
+    if (resonanceGameActive) return;
+    
+    resonanceGameActive = true;
+    closeAllModals();
+    
+    let timeLimit = 90; // Fácil
+    if (gameState.difficulty === 'medium') timeLimit = 70;
+    if (gameState.difficulty === 'hard') timeLimit = 50;
+    if (gameState.difficulty === 'nightmare') timeLimit = 40;
+    
+    resonanceGameData.timeLimit = timeLimit;
+    
+    resonanceTimer.textContent = timeLimit.toFixed(1);
+    resonanceHintBox.textContent = "SECUENCIA: (Lógica del puzzle pendiente)";
+    
+    // Lógica de inicialización del Canvas (Parte 2)
+    const ctx = resonanceCanvas.getContext('2d');
+    ctx.clearRect(0, 0, resonanceCanvas.width, resonanceCanvas.height);
+    ctx.fillStyle = 'var(--theme-text-dim)';
+    ctx.font = '16px IBM Plex Mono';
+    ctx.textAlign = 'center';
+    ctx.fillText('...Lógica del minijuego de nudos pendiente...', resonanceCanvas.width / 2, resonanceCanvas.height / 2);
+    
+    resonanceMinigameModal.classList.remove('hidden');
+    resonanceGameTimer = setInterval(updateResonanceTimer, 100);
+}
+
+function updateResonanceTimer() {
+    if (!resonanceGameActive) return;
+    resonanceGameData.timeLimit -= 0.1;
+    resonanceTimer.textContent = resonanceGameData.timeLimit.toFixed(1);
+    
+    if (resonanceGameData.timeLimit <= 0) {
+        resonanceTimer.textContent = '0.0';
+        failResonanceMinigame("¡Tiempo agotado!");
+    }
+}
+
+function stopResonanceMinigame(isCancel = false) {
+    if (!resonanceGameActive) return;
+    resonanceGameActive = false;
+    clearInterval(resonanceGameTimer);
+    resonanceMinigameModal.classList.add('hidden');
+    
+    if (isCancel) {
+        logNotification("Abortaste la recalibración.", 'info');
+    }
+}
+
+function successResonanceMinigame() {
+    let baseNoise = gameState.roomNoise[gameState.location] || 0;
+    changeRoomNoise(gameState.location, -baseNoise); // Reducción a 0 (o casi)
+    logNotification(`¡Resonancia estabilizada! El ruido baja drásticamente. (Después: ${Math.round(gameState.roomNoise[gameState.location])})`, 'sfx');
+    stopResonanceMinigame();
+}
+
+function failResonanceMinigame(reason) {
+    changeRoomNoise(gameState.location, 15); // Penalización
+    logNotification(`${reason} ¡La red colapsó! El ruido aumenta.`, 'scare');
+    stopResonanceMinigame();
+}
+
+// --- LÓGICA DE CAJA FUERTE (KEYPAD) ---
+
+function showSafeKeypad() {
+    closeAllModals();
+    // Resetear dígitos
+    keypadDigits.forEach(digitEl => {
+        digitEl.dataset.value = "0";
+        digitEl.textContent = "0";
+    });
+    safeKeypadModal.classList.remove('hidden');
+}
+
+function updateKeypadDigit(digitEl) {
+    let currentValue = parseInt(digitEl.dataset.value, 10);
+    currentValue = (currentValue + 1) % 10; // Ciclo 0-9
+    digitEl.dataset.value = currentValue;
+    digitEl.textContent = currentValue;
+}
+
+function checkSafeCode() {
+    let enteredCode = "";
+    keypadDigits.forEach(digitEl => {
+        enteredCode += digitEl.dataset.value;
+    });
+    
+    const correctCode = gameState.flags.safe_code || "4815"; // Usar código de flag
+    
+    if (enteredCode === correctCode) {
+        logNotification("Clic. La puerta de la caja fuerte se abre.", 'sfx');
+        closeAllModals();
+        showNode('almacen_safe_success'); // Ir al nodo de éxito
+    } else {
+        logNotification("Código incorrecto. El pestillo no se mueve.", 'scare');
+        // Opcional: ¿aumentar ruido por fallo?
+        // changeRoomNoise(null, 5);
+    }
+}
 
 // --- ACCIONES Y CONDICIONES DEL JUEGO ---
 
@@ -1814,40 +2083,51 @@ function checkFlagFalse(flag) { return !gameState.flags[flag]; }
 function checkFlagTrue(flag) { return gameState.flags[flag]; }
 function checkDifficulty(diff) { return gameState.difficulty === diff; }
 function checkRadioForzable() { return hasItem('destornillador') && gameState.flags.radio_forced_count < 2; }
-// Condición para "Hablar con Rulo" (preguntar si se une)
 function checkCanAskRuloToJoin() {
+    // BUGFIX Ansiedad: Añadir check
+    if (gameState.playerStats.ansiedad > 65) return false;
     return gameState.flags.rulo_awake && 
            !gameState.flags.rulo_joins && 
            !gameState.flags.rulo_rejected_join && 
            !gameState.flags.rulo_dead;
 }
-// Condición para "Dar Barrita a Rulo"
 function checkCanGiveBarrita() {
+    // BUGFIX Ansiedad: Añadir check
+    if (gameState.playerStats.ansiedad > 65) return false;
     return hasItem('barrita') && 
            gameState.flags.rulo_awake && 
            !gameState.flags.rulo_joins && 
            !gameState.flags.rulo_dead;
 }
-// Condición para rutas del pasillo
 function checkPasilloRouteAvailable() {
     return !gameState.flags.pasillo_este_route_chosen;
+}
+function checkCanTalkRuloSala() {
+    // BUGFIX Ansiedad: Añadir check
+    if (gameState.playerStats.ansiedad > 65) return false;
+    return gameState.flags.rulo_awake && !gameState.flags.rulo_dead && !gameState.flags.rulo_joins;
 }
 
 
 function rollD100() { return Math.floor(Math.random() * 100) + 1; }
 function hasItem(id) { return gameState.inventory[id] && gameState.inventory[id].qty > 0; }
 
-function addItem(id, name, rarity, qty = 1, consumable = false) {
-    if (id === 'mochila') { // Caso especial mochila
-        if (gameState.inventory[id]) return; // Ya la tiene
-        gameState.inventory[id] = { id, name, rarity, qty: 1, consumable: false };
+function addItem(id, name, rarity, qty = 1, consumable = false, isNote = false) {
+    if (id === 'mochila') { 
+        if (gameState.inventory[id]) return; 
+        gameState.inventory[id] = { id, name, rarity, qty: 1, consumable: false, isNote: false };
     }
     else if (gameState.inventory[id]) {
         gameState.inventory[id].qty += qty;
     } else {
-        gameState.inventory[id] = { id, name, rarity, qty, consumable };
+        gameState.inventory[id] = { id, name, rarity, qty, consumable, isNote };
     }
     logNotification(`¡Objeto hallado! ${name} x${qty}`, 'item');
+    
+    // Comprobar fragmentos
+    if (id === 'fragmento_a' || id === 'fragmento_b' || id === 'fragmento_c') {
+        gameState.flags.fragmentos_safe_count++;
+    }
 }
 
 function removeItem(id, qty = 1) {
@@ -1859,6 +2139,31 @@ function removeItem(id, qty = 1) {
      }
 }
 
+function checkSafeFragments() {
+    // Esta función es llamada por el botón "Combinar"
+    if (hasItem('fragmentos_combinacion')) {
+        logNotification("Ya has combinado los fragmentos.", 'info');
+        closeAllModals();
+        showNote('fragmentos_combinacion');
+        return;
+    }
+    
+    if (hasItem('fragmento_a') && hasItem('fragmento_b') && hasItem('fragmento_c')) {
+        removeItem('fragmento_a', 1);
+        removeItem('fragmento_b', 1);
+        removeItem('fragmento_c', 1);
+        
+        addItem('fragmentos_combinacion', 'Combinación Parcial', 'L', 1, false, true);
+        logNotification("Has juntado todos los fragmentos. Forman una pista legible.", 'item');
+        
+        closeAllModals();
+        showNote('fragmentos_combinacion');
+    } else {
+        logNotification("Aún te faltan fragmentos para combinar.", 'info');
+        closeAllModals();
+    }
+}
+
 function changeRoomNoise(roomId, amount, isDecay = false) {
     if (!roomId) roomId = gameState.location;
     if (!gameState.roomNoise.hasOwnProperty(roomId)) return;
@@ -1867,7 +2172,8 @@ function changeRoomNoise(roomId, amount, isDecay = false) {
     let newNoise = Math.max(0, Math.min(100, currentNoise + amount));
     gameState.roomNoise[roomId] = newNoise;
     
-    if (amount > 0 && !isDecay) {
+    // Evitar spam de notificaciones
+    if (amount > 0 && !isDecay && !fuseGameActive && !resonanceGameActive) {
         updatePlayerStat('ansiedad', amount / 5);
         logNotification(`Ruido aumentado: +${Math.round(amount)}`, 'info');
     }
@@ -1877,24 +2183,22 @@ function changeRoomNoise(roomId, amount, isDecay = false) {
     }
 }
 
-// MODIFICADO: Vuelve al hub de la ubicación actual
 function returnToPreviousLocation() {
-    showNode(gameState.location); // Vuelve al hub actual
+    showNode(gameState.location); 
 }
 
 // --- Acciones de Nodos ---
 
 function onEnterPasilloIntro() {
-    // Si ya tienes la mochila, omite este nodo y ve directo al hub
     if (gameState.flags.backpack_enabled) {
         showNode('pasillo_este_hub');
-        return false; // Detiene la ejecución de showNode para 'pasillo_este_intro'
+        return false; 
     }
-    return true; // Continúa mostrando 'pasillo_este_intro'
+    return true; 
 }
 
 function enableBackpack() {
-    addItem('mochila', 'Mochila', 'C', 1, false);
+    addItem('mochila', 'Mochila', 'C', 1, false, false);
     gameState.flags.backpack_enabled = true;
     renderHeaderUI();
 }
@@ -1910,10 +2214,62 @@ function despertarRulo(type) {
         text = "Lo sacudes con fuerza. Rulo se despierta con un grito ahogado.\n'¡NO! ¡NO ME TOQUES!'\nSe tapa la boca, pero el ruido ya está hecho.";
         changeRoomNoise(null, 30);
         gameEffects.playSfx("*GRITO AHOGADO*");
-        updateRuloStat('vida', -5); // Daño a Rulo
+        updateRuloStat('vida', -5); 
     }
     typeText(text, true, () => renderOptions(GAME_CONTENT.sala_vigilancia.options, 'sala_vigilancia'));
 }
+
+function hablarRuloSala() {
+    // BUGFIX Ansiedad:
+    if (gameState.playerStats.ansiedad > 65) {
+        typeText("Rulo te ve, con los ojos muy abiertos por el pánico. Niega con la cabeza, sin dejarte hablar.", true, () => renderOptions(GAME_CONTENT.sala_vigilancia.options, 'sala_vigilancia'));
+        return;
+    }
+
+    let text = "";
+    if (gameState.flags.rulo_awake_calm && !gameState.flags.hab_secreta_unlocked && Math.random() < 0.40) {
+        text = "Rulo mira fijamente un panel de mantenimiento en la pared.\n'Hay... una corriente de aire frío. Creo que hay una rendija detrás de ese panel.'";
+        unlockSecretRoom();
+    } else {
+        text = "Te acercas a Rulo.\n'Silencio... nos oirá.'\nNo parece querer hablar más.";
+    }
+    
+    typeText(text, true, () => renderOptions(GAME_CONTENT.sala_vigilancia.options, 'sala_vigilancia'));
+}
+
+function handleTalkRulo() {
+    if (isTyping || isGamePaused()) return;
+    
+    // BUGFIX Ansiedad:
+    if (gameState.playerStats.ansiedad > 65) {
+         typeText("RULO: '¡Aléjate! ¡Tu respiración... me pones nervioso!'", false, () => renderOptions(GAME_CONTENT[gameState.location].options, gameState.location));
+        return;
+    }
+    
+    const stats = gameState.ruloStats;
+    let text = "";
+    
+    if (stats.vida <= 40) text = "RULO: 'Estoy... herido. Necesito un vendaje.'";
+    else if (stats.hambre <= 20) text = "RULO: 'No puedo... seguir. Hambre.'";
+    else if (stats.agua <= 20) text = "RULO: 'Agua... necesito agua.'";
+    else if (gameState.flags.linterna_rulo && stats.bateria <= 10) text = "RULO: 'La luz... se apaga. Necesito otra batería.'";
+    else {
+        const roll = Math.random();
+        // TODO: Pista de Hab. Secreta
+        if (roll < 0.3) {
+            text = "RULO: '¿Oíste eso?'\nTe sientes un poco más ansioso.";
+            updatePlayerStat('ansiedad', 2);
+        } else if (roll < 0.6) {
+            text = "RULO: 'Todo saldrá bien. Solo... mantén la calma.'\nSus palabras te tranquilizan un poco.";
+            updatePlayerStat('ansiedad', -3); 
+        } else {
+            text = "RULO: 'Sigamos moviéndonos.'";
+        }
+    }
+    
+    typeText(text, false, () => renderOptions(GAME_CONTENT[gameState.location].options, gameState.location));
+}
+
 
 function sintonizarRadio() {
     const roll = rollD100();
@@ -1921,7 +2277,7 @@ function sintonizarRadio() {
     
     if (roll > 95) {
         text = "Voz clara: '...no confíes...'. Un compartimento se abre.";
-        addItem('cinta_magnetica', 'Cinta Magnética', 'R');
+        addItem('cinta_magnetica', 'Cinta Magnética', 'R', 1, false, true); 
         gameState.flags.radio_pista = true;
     } else if (roll > 60) {
         text += "Distingues un patrón: tres tonos... pausa... uno... pausa... dos. (3-1-2)";
@@ -1932,7 +2288,6 @@ function sintonizarRadio() {
         gameEffects.playScare("ESTÁTICA ENSORDECEDORA", true);
     }
     
-    // Sintonizar siempre está disponible, así que volvemos al nodo de radio
     typeText(text, true, () => renderOptions(GAME_CONTENT.revisar_radio.options, 'revisar_radio'));
 }
 
@@ -1950,7 +2305,6 @@ function forzarRadio() {
         text += "¡ERROR! El destornillador toca un capacitor. La radio explota. La puerta del Sótano retumba.";
         changeRoomNoise(null, 100);
         gameEffects.playScare("EXPLOSIÓN DE RADIO", true);
-        // El monstruo aparecerá por el ruido extremo
     } else if (roll > 50) {
         text += "La carcasa cede. Dentro, encuentras una [Batería Vieja].";
         addItem('bateria', 'Batería Vieja', 'C', 1, true);
@@ -1985,11 +2339,49 @@ function buscarEnSala(roomId) {
             addItem('destornillador', 'Destornillador', 'C');
         } else if (roll > (20 - findChance)) {
             text = "Encuentras una [Nota Rasgada]: '...se alimenta del ruido.'";
-            addItem('nota_rasgada', 'Nota Rasgada', 'R');
+            addItem('nota_rasgada', 'Nota Rasgada', 'R', 1, false, true);
         } else {
             text += "Polvo, óxido y cables. Nada útil.";
         }
     }
+    
+    if (roomId === 'almacen') {
+        if (roll > (85 - findChance) && !gameState.flags.linterna_found) {
+            text = "En una caja metálica, encuentras una [Linterna] táctica.";
+            addItem('linterna', 'Linterna', 'R', 1, false);
+            gameState.flags.linterna_found = true;
+        } else if (roll > (60 - findChance)) {
+            text = "Encuentras [Cinta Adhesiva] (duct tape).";
+            addItem('duct_tape', 'Cinta Adhesiva', 'C', 1, false);
+        } else if (roll > (40 - findChance) && !hasItem('fragmento_b')) {
+            text = "Detrás de un palé, ves un papel. Es el [Fragmento B].";
+            addItem('fragmento_b', 'Fragmento B', 'L', 1, false, true);
+        } else {
+            text += "Cajas vacías y herramientas rotas.";
+        }
+    }
+    
+    if (roomId === 'oficina_seguridad') {
+         if (roll > (50 - findChance) && !hasItem('fragmento_c')) {
+            text = "En un archivador, encuentras el [Fragmento C].";
+            addItem('fragmento_c', 'Fragmento C', 'L', 1, false, true);
+        } else {
+             text += "Papeles inútiles.";
+         }
+    }
+    
+    if (roomId === 'sala_vigilancia_secreta') {
+        if (roll > (60 - findChance)) {
+            text = "En la estantería hay [Vendajes Especiales].";
+            addItem('vendaje', 'Vendaje', 'C', 2, true); 
+        } else if (roll > (30 - findChance) && !hasItem('fragmento_a')) {
+            text = "Encuentras una nota cifrada: [Fragmento A].";
+            addItem('fragmento_a', 'Fragmento A', 'L', 1, false, true);
+        } else {
+            text += "Polvo y carpetas vacías.";
+        }
+    }
+    
     
     typeText(text, true, () => renderOptions(GAME_CONTENT[roomId].options, roomId));
 }
@@ -2043,11 +2435,27 @@ function forzarPalancaPanel() {
      typeText(text, true, () => renderOptions(GAME_CONTENT.panel_pasillo.options, 'panel_pasillo'));
 }
 
+function unlockSecretRoom() {
+    if (gameState.flags.hab_secreta_unlocked) return;
+    
+    gameState.flags.hab_secreta_unlocked = true;
+    if (!gameState.unlockedLocations.includes('sala_vigilancia_secreta')) {
+        gameState.unlockedLocations.push('sala_vigilancia_secreta');
+    }
+    logNotification("Has descubierto la [Habitación Secreta].", 'item');
+    renderLocations();
+}
+
 function hablarConRulo() {
+    // BUGFIX Ansiedad:
+    if (gameState.playerStats.ansiedad > 65) {
+        typeText("Intentas hablarle, pero tu respiración agitada lo asusta.\n'¡No te me acerques!'", true, () => renderOptions(GAME_CONTENT.pasillo_este_hub.options, 'pasillo_este_hub'));
+        return;
+    }
+
     gameState.flags.rulo_talked = true;
     let text = "Te acercas a Rulo. Sigue temblando.\n'¿Vas a venir conmigo?'\n";
     
-    // Si ya te rechazó, no puedes volver a preguntar
     if (gameState.flags.rulo_rejected_join) {
         text = "Rulo niega con la cabeza. 'Te dije que no. Déjame en paz.'";
         typeText(text, true, () => renderOptions(GAME_CONTENT.pasillo_este_hub.options, 'pasillo_este_hub'));
@@ -2057,16 +2465,14 @@ function hablarConRulo() {
     let probAcompañar = 0.3;
     if (gameState.flags.rulo_awake_calm) probAcompañar = 0.6;
     if (gameState.ruloStats.vida < 80) probAcompañar = 0.1;
-    if (gameState.playerStats.ansiedad > 70) probAcompañar = 0.1; // Menos prob si estás alterado
     
     if (Math.random() < probAcompañar) {
-        // Diálogo ambiental en lugar de "Ahora te acompaña"
         text = "Rulo mira la puerta del pasillo y luego a ti. Asiente lentamente.\n'Ese pasillo... me da mala espina. Pero peor es quedarse aquí.'";
         gameState.flags.rulo_joins = true;
     } else {
         text += "Rulo niega con la cabeza. 'No. Es demasiado peligroso. La voz... nos encontrará. Me quedo aquí.'";
         gameState.flags.rulo_joins = false;
-        gameState.flags.rulo_rejected_join = true; // Rechazo final
+        gameState.flags.rulo_rejected_join = true; 
     }
     
     renderRuloState();
@@ -2074,26 +2480,36 @@ function hablarConRulo() {
     typeText(text, true, () => renderOptions(GAME_CONTENT.pasillo_este_hub.options, 'pasillo_este_hub'));
 }
 
-// Nueva acción para dar barrita
 function darBarritaRulo() {
     if (!hasItem('barrita')) return;
     
+    // BUGFIX Ansiedad:
+    if (gameState.playerStats.ansiedad > 65) {
+        typeText("Sacas la barrita, pero Rulo retrocede.\n'¡No quiero nada de ti!'", true, () => renderOptions(GAME_CONTENT.pasillo_este_hub.options, 'pasillo_este_hub'));
+        return;
+    }
+    
+    // BUGFIX: No dar si ya te rechazó
+    if (gameState.flags.rulo_rejected_join) {
+        typeText("Rulo rechaza la barrita.\n'No. No quiero tu comida. Déjame.'", true, () => renderOptions(GAME_CONTENT.pasillo_este_hub.options, 'pasillo_este_hub'));
+        return;
+    }
+    
     removeItem('barrita', 1);
-    updateRuloStat('hambre', 40); // Rulo come la barrita
+    updateRuloStat('hambre', 40); 
     logNotification("Le das una barrita a Rulo. La acepta y la come en silencio.", 'info');
     
     let text = "Rulo termina la barrita. Te mira, más calmado.\n'Gracias... Quizá... quizá sí debería ir contigo.'\n";
     
-    let probAcompañar = 0.35; // 35% base por la barrita
-    if (gameState.flags.rulo_awake_calm) probAcompañar += 0.2; // +20% si lo despertaste bien
+    let probAcompañar = 0.35; 
+    if (gameState.flags.rulo_awake_calm) probAcompañar += 0.2; 
     
     if (Math.random() < probAcompañar) {
         text += "'Está bien. Iré. Pero vámonos ya.'";
         gameState.flags.rulo_joins = true;
-        gameState.flags.rulo_rejected_join = false; // Ya no está rechazado
+        gameState.flags.rulo_rejected_join = false; 
     } else {
         text += "'...Pero sigo sin estar seguro. Déjame pensarlo.'";
-        // No se une, pero resetea el rechazo para que puedas volver a "Hablar con Rulo"
         gameState.flags.rulo_rejected_join = false; 
     }
 
@@ -2104,7 +2520,8 @@ function darBarritaRulo() {
 
 
 function explorarPasillo() {
-    gameState.flags.pasillo_este_route_chosen = true; // Se marca al elegir
+    // BUGFIX: Esta acción NO activa 'pasillo_este_route_chosen'
+    
     const roll = rollD100();
     let text = "Revisas las cajas de cartón mojadas, haciendo algo de ruido...\n";
     changeRoomNoise(null, 12);
@@ -2147,7 +2564,7 @@ function explorarPasillo() {
 }
 
 function moverSigilo() {
-    gameState.flags.pasillo_este_route_chosen = true; // Se marca al elegir
+    gameState.flags.pasillo_este_route_chosen = true; 
     let text = "Avanzas despacio, pegado a la pared. Casi imperceptible.\n";
     changeRoomNoise(null, 2);
     
@@ -2170,7 +2587,7 @@ function moverSigilo() {
 }
 
 function moverRapido() {
-    gameState.flags.pasillo_este_route_chosen = true; // Se marca al elegir
+    gameState.flags.pasillo_este_route_chosen = true; 
     let text = "Corres por el pasillo. Tus pisadas retumban.\n";
     changeRoomNoise(null, 35);
     updatePlayerStat('ansiedad', 10);
@@ -2178,9 +2595,9 @@ function moverRapido() {
     
     const roll = rollD100();
     
-    if (roll <= 70) { // 70% de probabilidad de caer
+    if (roll <= 70) { 
         text += "¡Tropiezas con un tubo de metal! El estruendo es terrible. Caes de mala manera.";
-        let lifeLoss = gameState.playerStats.vida * 0.8; // Pierdes 80% de vida ACTUAL
+        let lifeLoss = gameState.playerStats.vida * 0.80; 
         updatePlayerStat('vida', -lifeLoss);
         changeRoomNoise(null, 25);
         gameEffects.playScare("ESTRUENDO METÁLICO", true);
@@ -2200,6 +2617,54 @@ function moverRapido() {
 }
 
 // --- CONTENIDO DEL JUEGO (NODOS DE HISTORIA) ---
+
+const NOTES_CONTENT = {
+    'nota_rasgada': {
+        title: "Nota Rasgada",
+        content: "Fragmento de una página de diario:\n\n'...el Eco es una sombra. No puedes matarlo, solo evitarlo. Se alimenta del ruido, pero teme a...\n\nEl resto está quemado."
+    },
+    'cinta_magnetica': {
+        title: "Cinta Magnética",
+        content: "Una grabación de audio corrupta. Solo se oyen fragmentos:\n\n'...(estática)... no confíes en las voces. El Umbral imita. Repito, imita. La transmisión... (estática)... experimento en el almacén... linternas...'"
+    },
+    'fragmento_a': {
+        title: "Fragmento A (Cifrado)",
+        content: "Un documento técnico. La mayor parte es ilegible, pero unos números están rodeados en rojo:\n\n...la frecuencia es la clave...\n\n... ( 4 ) ...\n... ( 8 ) ..."
+        // PARTE 2: El número '4' y '8' se reemplazarán por `gameState.flags.safe_code[0]`
+    },
+     'fragmento_b': {
+        title: "Fragmento B",
+        content: "Una nota de mantenimiento:\n\n'Dejaron la caja abierta otra vez. El código es demasiado simple. Es el número del proyector antiguo.'\n\n... ( 1 ) ..."
+        // PARTE 2: El número '1' se reemplazará
+    },
+     'fragmento_c': {
+        title: "Fragmento C",
+        content: "Un post-it:\n\n'Recordatorio: El último dígito es cuántos fallaron.'\n\n... ( 5 ) ..."
+         // PARTE 2: El número '5' se reemplazará
+    },
+    'fragmentos_combinacion': {
+        title: "Combinación Parcial",
+        content: "Has unido los fragmentos. Parecen ser los 4 dígitos de un código, pero están desordenados.\n\n[ 4, 8, 1, 5 ]"
+        // PARTE 2: Esto mostrará los números aleatorios
+    },
+    'nota_eco_1': {
+        title: "Hipótesis del Eco",
+        content: "...la entidad (ECO) parece ser capaz de 'imitar' patrones de voz digitalizados. Los experimentos en el sótano con el EMISOR-A demuestran..."
+    },
+    'nota_eco_2': {
+        title: "Experimentos Almacén",
+        content: "Las linternas modificadas (ver proto. L-MOD) parecen reaccionar a las frecuencias del ECO. Posible uso como 'revelador' de puntos débiles en el Umbral..."
+    },
+    'nota_emisor': {
+        title: "Pruebas Emisor",
+        content: "El EMISOR-A está calibrado. Si logramos activar la máquina del sótano, podríamos crear una 'burbuja' de silencio. Pero necesitamos el Dial de la sala de vig..."
+    }
+};
+
+function getSafeCodeHint() {
+    // PARTE 2: Esta función devolverá los números aleatorios
+    return `Los números están desordenados:\n\n[ 4, 8, 1, 5 ]\n\n(El código es ${gameState.flags.safe_code})`;
+}
 
 const GAME_CONTENT = {
     'start': {
@@ -2223,15 +2688,16 @@ const GAME_CONTENT = {
             },
             { text: "Despertar a Rulo (Suavemente)", action: { func: "despertarRulo", params: "calm" }, condition: { func: "checkFlagFalse", params: "rulo_awake" } },
             { text: "Despertar a Rulo (Bruscamente)", action: { func: "despertarRulo", params: "brusco" }, condition: { func: "checkFlagFalse", params: "rulo_awake" } },
+            { text: "Hablarle con calma a Rulo", action: { func: "hablarRuloSala" }, condition: { func: "checkCanTalkRuloSala" } },
+            { text: "Examinar panel de mantenimiento", target: "panel_secreto_examine", condition: { func: "checkFlagFalse", params: "hab_secreta_unlocked" } },
+            { text: "[IR] Entrar en la rendija secreta", target: "sala_vigilancia_secreta", condition: { func: "checkFlagTrue", params: "hab_secreta_unlocked" } }
         ]
     },
     'revisar_radio': {
         isInteraction: true,
         text: "La radio emite estática. La luz del canal 19 parpadea.",
         options: [
-            // Sintonizar se puede hacer siempre
             { text: "Intentar sintonizar manualmente", action: { func: "sintonizarRadio" } },
-            // Forzar solo 2 veces
             { text: "Forzar radio con destornillador", action: { func: "forzarRadio" }, condition: { func: "checkRadioForzable" } },
             { text: "Volver", action: { func: "returnToPreviousLocation" } }
         ]
@@ -2254,22 +2720,75 @@ const GAME_CONTENT = {
             { text: "Volver", action: { func: "returnToPreviousLocation" } }
         ]
     },
+    'panel_secreto_examine': {
+        isInteraction: true,
+        text: "Es un panel de mantenimiento estándar. Parece un poco suelto.",
+        onEnter: () => {
+            // PARTE 2: Añadir check de cámara reparada
+            if (hasItem('bateria') && hasItem('destornillador') && gameState.flags.rulo_awake && !gameState.flags.hab_secreta_unlocked) {
+                 if (Math.random() < 0.15) {
+                    unlockSecretRoom();
+                    typeText("Usas el destornillador y la batería para trastear con los cables. Rulo te detiene.\n'Espera. Hay una rendija ahí.'", true, () => {
+                         renderOptions(GAME_CONTENT.sala_vigilancia.options, 'sala_vigilancia');
+                    });
+                    return false; 
+                 }
+            }
+        },
+        options: [
+            { text: "Volver", action: { func: "returnToPreviousLocation" } }
+        ]
+    },
     'parte1_fin_exito': {
         isInteraction: true,
         text: "La puerta al pasillo chisporrotea y se abre.\nUn golpe seco viene del sótano.",
-        // La notificación del monstruo se maneja por separado
         onEnter: { func: "gameEffects.playScare", params: { text: "SOMBRA EN EL SÓTANO", shake: true } },
         options: [
             { text: "[Entrar al Pasillo Este]", target: "pasillo_este_intro" },
         ]
     },
     
-    // --- PARTE 2 ---
+    'sala_vigilancia_secreta': {
+        isLocationHub: true,
+        text: "Entras por la rendija a una pequeña sala de archivos oculta. Hay estanterías y un panel inservible.",
+        options: [
+             { 
+                text: "Revisar estanterías", 
+                action: { func: "buscarEnSala", params: "sala_vigilancia_secreta" }, 
+                countsSearch: "sala_vigilancia_secreta"
+            },
+            { text: "Examinar documentos", target: "sala_secreta_documentos" },
+            { text: "Examinar panel inservible", target: "sala_secreta_panel" },
+            // PARTE 2: Añadir puzzle de placas y atajo
+            { text: "Volver a la Sala de Vigilancia", target: "sala_vigilancia" }
+        ]
+    },
+    'sala_secreta_documentos': {
+        isInteraction: true,
+        text: "Son notas sobre el 'Eco' y el 'Umbral'. Parece que estudiaban la capacidad del Eco para imitar voces. Encuentras varias notas legibles.",
+        onEnter: () => {
+             addItem('nota_eco_1', 'Nota: Hipótesis del Eco', 'R', 1, false, true);
+             addItem('nota_eco_2', 'Nota: Experimentos Almacén', 'R', 1, false, true);
+        },
+        options: [
+             { text: "Volver", target: "sala_vigilancia_secreta" }
+        ]
+    },
+     'sala_secreta_panel': {
+        isInteraction: true,
+        text: "El panel está muerto, pero tiene marcas de un dial. Parece una pieza de algo más grande.",
+        onEnter: () => {
+             addItem('pieza_dial', 'Pieza de Dial Rota', 'L', 1, false);
+        },
+        options: [
+             { text: "Volver", target: "sala_vigilancia_secreta" }
+        ]
+    },
+    
     'pasillo_este_intro': {
         isInteraction: true,
         isCheckpoint: true,
         text: "Abres la puerta al pasillo Este. La luz de emergencia titila en rojo. A la derecha, apoyada contra una columna, hay una mochila vieja.",
-        // onEnter revisa si ya tienes la mochila
         onEnter: { func: "onEnterPasilloIntro" }, 
         options: [
             { text: "Abrir la mochila", target: "abrir_mochila" }
@@ -2278,7 +2797,7 @@ const GAME_CONTENT = {
     'abrir_mochila': {
         isInteraction: true,
         text: "Abres la mochila. Está vacía, pero limpia. Transfieres tus cosas a ella.",
-        onEnter: { func: "enableBackpack" }, // Añade la mochila y activa el flag
+        onEnter: { func: "enableBackpack" }, 
         options: [
             { text: "Continuar por el pasillo", target: "pasillo_este_hub" }
         ]
@@ -2291,13 +2810,10 @@ const GAME_CONTENT = {
             { 
                 text: "Revisar cajas (Ruta Exploratoria)", 
                 action: { func: "explorarPasillo" },
-                countsSearch: "pasillo_este_hub"
+                countsSearch: "pasillo_este_hub" 
             },
-            // Opciones de Ruta (solo aparecen si no se ha elegido una)
             { text: "Avanzar con cuidado (Ruta Cautelosa)", action: { func: "moverSigilo" }, condition: { func: "checkPasilloRouteAvailable" } },
             { text: "Correr al fondo (Ruta Rápida)", action: { func: "moverRapido" }, condition: { func: "checkPasilloRouteAvailable" } },
-            
-            // Opciones de Rulo
             { 
                 text: "Hablar con Rulo (¿Vienes?)", 
                 action: { func: "hablarConRulo" }, 
@@ -2317,16 +2833,60 @@ const GAME_CONTENT = {
         isCheckpoint: true,
         text: "Llegas al almacén. Cajas apiladas, olor a aceite. Se oyen rascaduras detrás de una estantería.",
         options: [
-            { text: "Buscar suministros (Próximamente)", target: "almacen" },
+            { 
+                text: "Buscar suministros", 
+                action: { func: "buscarEnSala", params: "almacen" }, 
+                countsSearch: "almacen"
+            },
+            { text: "Examinar caja fuerte", target: "almacen_safe", condition: { func: "checkFlagFalse", params: "safe_almacen_open"} },
             { text: "Volver al Pasillo Este", target: "pasillo_este_hub" }
         ]
     },
+    'almacen_safe': {
+        isInteraction: true,
+        text: "Una caja fuerte de 4 dígitos. Está cerrada.",
+        options: [
+            { text: "Introducir código", action: { func: "showSafeKeypad" }, condition: { func: "checkHasItem", params: "fragmentos_combinacion" } },
+            { text: "Forzar cerradura", target: "almacen_safe_fail" },
+            { text: "Volver", target: "almacen" }
+        ]
+    },
+    'almacen_safe_success': {
+        isInteraction: true,
+        text: "El código funciona. La puerta de la caja se abre con un clic.\n\nDentro encuentras una pieza de hardware etiquetada [EMISOR-A] y varios documentos.",
+        onEnter: () => {
+            gameState.flags.safe_almacen_open = true;
+            addItem('emisor_a', 'Emisor-A', 'L', 1, false);
+            addItem('nota_emisor', 'Nota: Pruebas Emisor', 'R', 1, false, true);
+        },
+        options: [
+             { text: "Volver", target: "almacen" }
+        ]
+    },
+     'almacen_safe_fail': {
+        isInteraction: true,
+        text: "Intentas forzar la cerradura. El metal se dobla, pero no cede. ¡Te cortas la mano!\n\n(Diálogo Rulo 1): '¡Imbécil! ¿Quieres que nos maten?'\n(Diálogo Rulo 2): '...déjalo. No vale la pena.'",
+        onEnter: () => {
+            changeRoomNoise('almacen', 40);
+            updatePlayerStat('vida', -15); // Daño por forzar
+            gameEffects.playScare("RUIDO METÁLICO", true);
+        },
+        options: [
+             { text: "Volver", target: "almacen" }
+        ]
+    },
+    
     'oficina_seguridad': {
         isLocationHub: true,
         isCheckpoint: true,
         text: "Entras a la oficina de seguridad. Un escritorio volcado, notas en el suelo. Hay una llave colgando de un tablero.",
         options: [
-            { text: "Leer notas (Próximamente)", target: "oficina_seguridad" },
+            { 
+                text: "Buscar en archivadores", 
+                action: { func: "buscarEnSala", params: "oficina_seguridad" }, 
+                countsSearch: "oficina_seguridad"
+            },
+            // PARTE 2: { text: "Usar linterna en rincón", action: {..}, condition: {..} }
             { text: "Volver al Pasillo Este", target: "pasillo_este_hub" }
         ]
     },
@@ -2377,7 +2937,9 @@ function init() {
     // UI del Juego
     $('#backpack-btn').addEventListener('click', toggleBackpack);
     $('#close-backpack-btn').addEventListener('click', closeAllModals);
+    $('#close-note-reader-btn').addEventListener('click', closeAllModals); 
     $('#reaction-btn').addEventListener('click', clickReactionBtn);
+    $('#talk-rulo-btn').addEventListener('click', handleTalkRulo); 
     
     // Modales de Stats
     $('#player-state-button').addEventListener('click', togglePlayerStats);
@@ -2391,15 +2953,30 @@ function init() {
             startCalmMinigame();
         }
     });
-    $('#calm-cancel-btn').addEventListener('click', () => stopCalmMinigame(true)); // Cancelar NO falla
+    $('#calm-cancel-btn').addEventListener('click', () => stopCalmMinigame(true)); 
     
+    // Listeners Minijuego Ruido
+    $('#noise-select-fuse-btn').addEventListener('click', startFuseMinigame);
+    $('#noise-select-resonance-btn').addEventListener('click', startResonanceMinigame);
+    $('#noise-select-cancel-btn').addEventListener('click', closeAllModals);
+
     // Listeners Minijuego Fusibles
     $('#fuse-confirm-btn').addEventListener('click', confirmFuseSequence);
     $('#fuse-clear-btn').addEventListener('click', clearFuseSequence);
+    $('#fuse-cancel-btn').addEventListener('click', () => stopFuseMinigame(true)); // BOTÓN CANCELAR
     
+    // Listeners Minijuego Resonancia
+    $('#resonance-cancel-btn').addEventListener('click', () => stopResonanceMinigame(true)); 
+    
+    // Listeners Keypad Caja Fuerte
+    keypadDigits.forEach(digitEl => {
+        digitEl.addEventListener('click', () => updateKeypadDigit(digitEl));
+    });
+    $('#safe-keypad-confirm').addEventListener('click', checkSafeCode);
+    $('#safe-keypad-cancel').addEventListener('click', closeAllModals);
+
     // Listener de Teclado Global
     window.addEventListener('keydown', (e) => {
-        // El minijuego de calma tiene su propio listener
         if (calmGameActive) {
             handleCalmKey(e);
             return;
@@ -2416,12 +2993,17 @@ function init() {
 
         if (e.key === 'Escape') {
             if (calmGameActive) { stopCalmMinigame(true); return; }
-            if (fuseGameActive) { stopFuseMinigame(); return; }
+            if (fuseGameActive) { stopFuseMinigame(true); return; }
+            if (resonanceGameActive) { stopResonanceMinigame(true); return; } 
             
             if (!backpackModal.classList.contains('hidden') || 
                 !playerStatsModal.classList.contains('hidden') || 
                 !ruloStatsModal.classList.contains('hidden') ||
-                !confirmModal.classList.contains('hidden')) {
+                !confirmModal.classList.contains('hidden') ||
+                !noteReaderModal.classList.contains('hidden') || 
+                !noiseMinigameSelectModal.classList.contains('hidden') ||
+                !safeKeypadModal.classList.contains('hidden')
+                ) {
                 closeAllModals();
             }
             else if (settingsScreen.style.display === 'flex' || difficultySelectScreen.style.display === 'flex') {
@@ -2433,10 +3015,10 @@ function init() {
         }
     });
     
-    // Click en la barra de ruido (inicia minijuego de fusibles)
+    // Clic en la barra de ruido
     $('#noise-bar-container').addEventListener('click', () => {
         if (isTyping || isGamePaused() || gameScreen.style.display === 'none') return;
-        startFuseMinigame(); // Esta función ahora contiene el chequeo de > 15
+        showNoiseMinigameSelect(); 
     });
 
     // Comprobar estado de guardado al cargar
