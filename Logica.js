@@ -126,8 +126,10 @@ let resonanceGameActive = false;
 let resonanceGameTimer = null;
 let resonanceGameData = {
     timeLimit: 90,
-    solution: [], // Parte 2
-    nodes: [] // Parte 2
+    solution: [],
+    nodes: [],
+    playerSequence: [],
+    renderLoop: null
 };
 
 
@@ -349,6 +351,8 @@ function loadGameState() {
             if (gameState.flags.linterna_rulo === undefined) gameState.flags.linterna_rulo = false;
             if (gameState.flags.fragmentos_safe_count === undefined) gameState.flags.fragmentos_safe_count = 0;
             if (gameState.flags.safe_almacen_open === undefined) gameState.flags.safe_almacen_open = false;
+            if (gameState.flags.safe_code === undefined) gameState.flags.safe_code = "4815"; // Fallback
+            if (gameState.flags.safe_digits === undefined) gameState.flags.safe_digits = [4, 8, 1, 5]; // Fallback
             // --- Fin corrección ---
             
             return true;
@@ -400,7 +404,7 @@ function resetAllData() {
     localStorage.removeItem(SAVE_KEY_CHECKPOINT);
     localStorage.removeItem(SAVE_KEY_DEVICE);
     localStorage.removeItem(SAVE_KEY_THEME);
-    notificationLog.innerHTML = ''; // Limpiar notificaciones
+    notificationLog.innerHTML = ''; 
     location.reload(); 
 }
 
@@ -409,6 +413,16 @@ function flashSaveIcon() {
     setTimeout(() => {
         saveIcon.style.opacity = '0';
     }, 1500);
+}
+
+// NUEVO: Generar código de caja fuerte
+function generateSafeCode() {
+    let d1 = Math.floor(Math.random() * 10);
+    let d2 = Math.floor(Math.random() * 10);
+    let d3 = Math.floor(Math.random() * 10);
+    let d4 = Math.floor(Math.random() * 10);
+    gameState.flags.safe_code = `${d1}${d2}${d3}${d4}`;
+    gameState.flags.safe_digits = [d1, d2, d3, d4];
 }
 
 function resetGame() {
@@ -450,9 +464,10 @@ function resetGame() {
             hab_secreta_unlocked: false,
             linterna_found: false,
             linterna_rulo: false,
-            fragmentos_safe_count: 0, // Contará cuántos tienes (A, B, C)
+            fragmentos_safe_count: 0,
             safe_almacen_open: false,
-            safe_code: "4815" // Código estático por ahora (Parte 1)
+            safe_code: "4815", // Se sobrescribirá
+            safe_digits: [4, 8, 1, 5] // Se sobrescribirá
         },
         unlockedLocations: ['sala_vigilancia'],
         monsterPresent: false,
@@ -465,6 +480,8 @@ function resetGame() {
             'sala_vigilancia': 0, 'pasillo_este_hub': 0, 'almacen': 0, 'oficina_seguridad': 0, 'sala_vigilancia_secreta': 0
         }
     };
+    
+    generateSafeCode(); // Generar código aleatorio
     saveGameState();
 }
 
@@ -477,7 +494,6 @@ function showScreen(screenId) {
     gameScreen.style.display = 'none';
     deviceSelectOverlay.style.display = 'none';
     
-    // BUGFIX: Ocultar la transición de noche por si acaso
     nightTransitionOverlay.classList.add('hidden');
     
     const gameMenuBtn = $('#game-back-to-menu-btn');
@@ -540,7 +556,6 @@ function startGameFromMenu() {
     
     if (isContinue && loadGameState()) {
         // --- Cargar Partida ---
-        // BUGFIX: No mostrar transición al continuar
         showScreen('game');
         renderAllUI();
         showNode(gameState.location);
@@ -555,8 +570,7 @@ function startGameFromMenu() {
 function selectDifficulty(difficulty) {
     resetGame(); 
     gameState.difficulty = difficulty;
-    // PARTE 2: Aquí se generarían los códigos aleatorios
-    // gameState.flags.safe_code = generateRandomCode();
+    generateSafeCode(); // Generar código aleatorio
     saveGameState(); 
     
     // BUGFIX: Inicia el juego CON la transición
@@ -617,7 +631,7 @@ function isGamePaused() {
            !confirmModal.classList.contains('hidden') ||
            !noteReaderModal.classList.contains('hidden') || 
            !noiseMinigameSelectModal.classList.contains('hidden') || 
-           !safeKeypadModal.classList.contains('hidden') || // NUEVO
+           !safeKeypadModal.classList.contains('hidden') || 
            calmGameActive ||
            fuseGameActive ||
            resonanceGameActive || 
@@ -956,10 +970,6 @@ function handleOptionClick(option, nodeId) {
             return;
         }
         gameState.roomCounters[option.countsSearch]++;
-        
-        // BUGFIX: La regla 'pasillo_este_route_chosen' NO debe activarse
-        // si la opción es *solo* de búsqueda (countsSearch) y no de ruta.
-        // La acción 'explorarPasillo' ya NO activa el flag.
     }
     
     if (option.action) {
@@ -1012,7 +1022,6 @@ function renderLocations() {
         locBtn.textContent = loc.name;
         
         if (isLocked) {
-            // BUGFIX: No renderizar el botón si está bloqueado
             return; 
         } else {
             locBtn.className = 'location-btn';
@@ -1160,8 +1169,7 @@ function closeAllModals() {
     noiseMinigameSelectModal.classList.add('hidden'); 
     safeKeypadModal.classList.add('hidden');
     
-    // Detener minijuegos si se cierran
-    if (fuseGameActive) stopFuseMinigame(true); // true = cancelar
+    if (fuseGameActive) stopFuseMinigame(true); 
     if (resonanceGameActive) stopResonanceMinigame(true); 
     if (calmGameActive) stopCalmMinigame(true);
 }
@@ -1251,9 +1259,9 @@ function renderBackpack() {
     }
     
     // Botón de Combinar
-    if (fragmentsFound > 1) {
+    if (fragmentsFound >= 2 && !hasItem('fragmentos_combinacion')) { // Mostrar si tienes 2 o más
         const combineBtn = document.createElement('button');
-        combineBtn.textContent = 'Combinar Fragmentos';
+        combineBtn.textContent = `Combinar Fragmentos (${fragmentsFound}/3)`;
         combineBtn.className = 'btn-action w-full mt-2';
         combineBtn.onclick = combineFragments;
         backpackNotesList.appendChild(combineBtn);
@@ -1271,9 +1279,20 @@ function showNote(noteId) {
     
     let title = note.title;
     let content = note.content;
+    const digits = gameState.flags.safe_digits;
     
-    if (noteId === 'fragmentos_combinacion') {
-        content = `Has unido los fragmentos. El texto revela:\n\n"${getSafeCodeHint()}"`;
+    // Contenido dinámico para notas de fragmentos
+    if (noteId === 'fragmento_a') {
+        content = `Un documento técnico. La mayor parte es ilegible, pero unos números están rodeados en rojo:\n\n...la frecuencia es la clave...\n\n... ( ${digits[0]} ) ...\n... ( ${digits[1]} ) ...`;
+    }
+    else if (noteId === 'fragmento_b') {
+        content = `Una nota de mantenimiento:\n\n'Dejaron la caja abierta otra vez. El código es demasiado simple. Es el número del proyector antiguo.'\n\n... ( ${digits[2]} ) ...`;
+    }
+    else if (noteId === 'fragmento_c') {
+         content = `Un post-it:\n\n'Recordatorio: El último dígito es cuántos fallaron.'\n\n... ( ${digits[3]} ) ...`;
+    }
+    else if (noteId === 'fragmentos_combinacion') {
+        content = `Has unido los fragmentos. Parecen ser los 4 dígitos de un código, pero están desordenados.\n\n[ ${digits.join(', ')} ]\n\n(El código es ${gameState.flags.safe_code})`;
     }
     
     noteReaderTitle.textContent = `[ ${title} ]`;
@@ -1285,7 +1304,6 @@ function showNote(noteId) {
 
 // Combinar Fragmentos
 function combineFragments() {
-    // Comprobar si ya están combinados
     if (hasItem('fragmentos_combinacion')) {
         logNotification("Ya has combinado los fragmentos.", 'info');
         closeAllModals();
@@ -1293,17 +1311,16 @@ function combineFragments() {
         return;
     }
     
-    // Comprobar si tiene los 3
     if (hasItem('fragmento_a') && hasItem('fragmento_b') && hasItem('fragmento_c')) {
         removeItem('fragmento_a', 1);
         removeItem('fragmento_b', 1);
         removeItem('fragmento_c', 1);
         
-        addItem('fragmentos_combinacion', 'Combinación Parcial', 'L', 1, false, true);
+        addItem('fragmentos_combinacion', 'Combinación (Completa)', 'L', 1, false, true);
         logNotification("Has juntado todos los fragmentos. Forman una pista legible.", 'item');
         
         closeAllModals();
-        showNote('fragmentos_combinacion'); // Mostrar la nota combinada
+        showNote('fragmentos_combinacion'); 
     } else {
         logNotification("Aún te faltan fragmentos para combinar.", 'info');
         closeAllModals();
@@ -1459,7 +1476,6 @@ function logNotification(text, type = 'info') {
     
     el.textContent = text;
     
-    // BUGFIX: Añadir al principio y limitar
     notificationLog.prepend(el);
     if (notificationLog.children.length > NOTIFICATION_LIMIT) {
         notificationLog.removeChild(notificationLog.lastChild);
@@ -1989,18 +2005,154 @@ function startResonanceMinigame() {
     resonanceGameData.timeLimit = timeLimit;
     
     resonanceTimer.textContent = timeLimit.toFixed(1);
-    resonanceHintBox.textContent = "SECUENCIA: (Lógica del puzzle pendiente)";
+
+    // Generar Puzzle
+    const allNodes = [
+        { id: 'azul', color: 'var(--theme-calm)' }, 
+        { id: 'verde', color: 'var(--theme-text)' }, 
+        { id: 'rojo', color: 'var(--theme-scare)' }, 
+        { id: 'blanco', color: '#e5e5e5' }, 
+        { id: 'amarillo', color: 'var(--theme-sfx)' }
+    ];
     
-    // Lógica de inicialización del Canvas (Parte 2)
-    const ctx = resonanceCanvas.getContext('2d');
-    ctx.clearRect(0, 0, resonanceCanvas.width, resonanceCanvas.height);
-    ctx.fillStyle = 'var(--theme-text-dim)';
-    ctx.font = '16px IBM Plex Mono';
-    ctx.textAlign = 'center';
-    ctx.fillText('...Lógica del minijuego de nudos pendiente...', resonanceCanvas.width / 2, resonanceCanvas.height / 2);
+    let numNodes = 3 + Math.floor(gameState.roomNoise[gameState.location] / 30); // 3-6 nodos
+    numNodes = Math.min(numNodes, 5); // Limitar a 5 por ahora
+    
+    let puzzleNodes = shuffleArray([...allNodes]).slice(0, numNodes);
+    let solutionPath = [...puzzleNodes];
+    
+    resonanceGameData.solution = solutionPath.map(n => n.id);
+    resonanceGameData.playerSequence = [];
+    resonanceGameData.nodes = [];
+    
+    resonanceHintBox.textContent = "SECUENCIA: " + resonanceGameData.solution.join(' -> ');
+    
+    // Generar posiciones de nodos
+    const canvas = resonanceCanvas;
+    const padding = 40;
+    for (let i = 0; i < puzzleNodes.length; i++) {
+        resonanceGameData.nodes.push({
+            id: puzzleNodes[i].id,
+            color: puzzleNodes[i].color,
+            x: Math.random() * (canvas.width - padding * 2) + padding,
+            y: Math.random() * (canvas.height - padding * 2) + padding,
+            radius: 20,
+            state: 'idle' // 'idle', 'selected', 'correct'
+        });
+    }
     
     resonanceMinigameModal.classList.remove('hidden');
     resonanceGameTimer = setInterval(updateResonanceTimer, 100);
+    // Iniciar bucle de renderizado
+    resonanceGameData.renderLoop = requestAnimationFrame(drawResonanceGame);
+}
+
+function drawResonanceGame() {
+    if (!resonanceGameActive) return;
+    
+    const ctx = resonanceCanvas.getContext('2d');
+    ctx.clearRect(0, 0, resonanceCanvas.width, resonanceCanvas.height);
+    const nodes = resonanceGameData.nodes;
+    const playerSeq = resonanceGameData.playerSequence;
+
+    // Dibujar líneas de conexión
+    ctx.lineWidth = 1;
+    for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+            ctx.strokeStyle = 'rgba(128, 128, 128, 0.2)';
+            ctx.beginPath();
+            ctx.moveTo(nodes[i].x, nodes[i].y);
+            ctx.lineTo(nodes[j].x, nodes[j].y);
+            ctx.stroke();
+        }
+    }
+    
+    // Dibujar líneas de secuencia del jugador
+    ctx.strokeStyle = 'var(--theme-text-bright)';
+    ctx.lineWidth = 3;
+    for (let i = 0; i < playerSeq.length - 1; i++) {
+        const nodeA = nodes.find(n => n.id === playerSeq[i]);
+        const nodeB = nodes.find(n => n.id === playerSeq[i+1]);
+        if (nodeA && nodeB) {
+            ctx.beginPath();
+            ctx.moveTo(nodeA.x, nodeA.y);
+            ctx.lineTo(nodeB.x, nodeB.y);
+            ctx.stroke();
+        }
+    }
+
+    // Dibujar nodos
+    nodes.forEach(node => {
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
+        
+        ctx.fillStyle = node.color;
+        if (node.state === 'idle') ctx.globalAlpha = 0.5;
+        else ctx.globalAlpha = 1.0;
+        ctx.fill();
+        ctx.globalAlpha = 1.0;
+
+        // Dibujar estado
+        if (node.state === 'correct') {
+            ctx.strokeStyle = 'var(--theme-text-bright)';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+        } else if (node.state === 'idle') {
+            ctx.strokeStyle = node.color;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
+    });
+
+    resonanceGameData.renderLoop = requestAnimationFrame(drawResonanceGame);
+}
+
+function handleResonanceClick(e) {
+    if (!resonanceGameActive) return;
+
+    const rect = resonanceCanvas.getBoundingClientRect();
+    const scaleX = resonanceCanvas.width / rect.width;
+    const scaleY = resonanceCanvas.height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+
+    let clickedNode = null;
+    for (const node of resonanceGameData.nodes) {
+        const dist = Math.sqrt(Math.pow(node.x - x, 2) + Math.pow(node.y - y, 2));
+        if (dist < node.radius) {
+            clickedNode = node;
+            break;
+        }
+    }
+    
+    if (clickedNode) {
+        onResonanceNodeClick(clickedNode);
+    }
+}
+
+function onResonanceNodeClick(clickedNode) {
+    if (clickedNode.state !== 'idle') return; // Ya clickeado
+
+    const seq = resonanceGameData.playerSequence;
+    const sol = resonanceGameData.solution;
+
+    if (sol[seq.length] === clickedNode.id) {
+        // Click correcto
+        clickedNode.state = 'correct';
+        seq.push(clickedNode.id);
+        
+        // Comprobar victoria
+        if (seq.length === sol.length) {
+            successResonanceMinigame();
+        }
+    } else {
+        // Click incorrecto
+        changeRoomNoise(null, 10);
+        logNotification("¡Interferencia! Secuencia incorrecta.", 'scare');
+        // Resetear
+        resonanceGameData.playerSequence = [];
+        resonanceGameData.nodes.forEach(n => n.state = 'idle');
+    }
 }
 
 function updateResonanceTimer() {
@@ -2018,6 +2170,7 @@ function stopResonanceMinigame(isCancel = false) {
     if (!resonanceGameActive) return;
     resonanceGameActive = false;
     clearInterval(resonanceGameTimer);
+    cancelAnimationFrame(resonanceGameData.renderLoop);
     resonanceMinigameModal.classList.add('hidden');
     
     if (isCancel) {
@@ -2027,13 +2180,13 @@ function stopResonanceMinigame(isCancel = false) {
 
 function successResonanceMinigame() {
     let baseNoise = gameState.roomNoise[gameState.location] || 0;
-    changeRoomNoise(gameState.location, -baseNoise); // Reducción a 0 (o casi)
+    changeRoomNoise(gameState.location, -baseNoise); 
     logNotification(`¡Resonancia estabilizada! El ruido baja drásticamente. (Después: ${Math.round(gameState.roomNoise[gameState.location])})`, 'sfx');
     stopResonanceMinigame();
 }
 
 function failResonanceMinigame(reason) {
-    changeRoomNoise(gameState.location, 15); // Penalización
+    changeRoomNoise(gameState.location, 15); 
     logNotification(`${reason} ¡La red colapsó! El ruido aumenta.`, 'scare');
     stopResonanceMinigame();
 }
@@ -2042,7 +2195,6 @@ function failResonanceMinigame(reason) {
 
 function showSafeKeypad() {
     closeAllModals();
-    // Resetear dígitos
     keypadDigits.forEach(digitEl => {
         digitEl.dataset.value = "0";
         digitEl.textContent = "0";
@@ -2063,16 +2215,14 @@ function checkSafeCode() {
         enteredCode += digitEl.dataset.value;
     });
     
-    const correctCode = gameState.flags.safe_code || "4815"; // Usar código de flag
+    const correctCode = gameState.flags.safe_code || "4815";
     
     if (enteredCode === correctCode) {
         logNotification("Clic. La puerta de la caja fuerte se abre.", 'sfx');
         closeAllModals();
-        showNode('almacen_safe_success'); // Ir al nodo de éxito
+        showNode('almacen_safe_success'); 
     } else {
         logNotification("Código incorrecto. El pestillo no se mueve.", 'scare');
-        // Opcional: ¿aumentar ruido por fallo?
-        // changeRoomNoise(null, 5);
     }
 }
 
@@ -2084,7 +2234,6 @@ function checkFlagTrue(flag) { return gameState.flags[flag]; }
 function checkDifficulty(diff) { return gameState.difficulty === diff; }
 function checkRadioForzable() { return hasItem('destornillador') && gameState.flags.radio_forced_count < 2; }
 function checkCanAskRuloToJoin() {
-    // BUGFIX Ansiedad: Añadir check
     if (gameState.playerStats.ansiedad > 65) return false;
     return gameState.flags.rulo_awake && 
            !gameState.flags.rulo_joins && 
@@ -2092,7 +2241,6 @@ function checkCanAskRuloToJoin() {
            !gameState.flags.rulo_dead;
 }
 function checkCanGiveBarrita() {
-    // BUGFIX Ansiedad: Añadir check
     if (gameState.playerStats.ansiedad > 65) return false;
     return hasItem('barrita') && 
            gameState.flags.rulo_awake && 
@@ -2103,9 +2251,12 @@ function checkPasilloRouteAvailable() {
     return !gameState.flags.pasillo_este_route_chosen;
 }
 function checkCanTalkRuloSala() {
-    // BUGFIX Ansiedad: Añadir check
     if (gameState.playerStats.ansiedad > 65) return false;
     return gameState.flags.rulo_awake && !gameState.flags.rulo_dead && !gameState.flags.rulo_joins;
+}
+// NUEVA Condición para linterna
+function checkRuloFlashlight() {
+    return gameState.flags.linterna_rulo && gameState.ruloStats.bateria > 0;
 }
 
 
@@ -2124,7 +2275,6 @@ function addItem(id, name, rarity, qty = 1, consumable = false, isNote = false) 
     }
     logNotification(`¡Objeto hallado! ${name} x${qty}`, 'item');
     
-    // Comprobar fragmentos
     if (id === 'fragmento_a' || id === 'fragmento_b' || id === 'fragmento_c') {
         gameState.flags.fragmentos_safe_count++;
     }
@@ -2139,31 +2289,6 @@ function removeItem(id, qty = 1) {
      }
 }
 
-function checkSafeFragments() {
-    // Esta función es llamada por el botón "Combinar"
-    if (hasItem('fragmentos_combinacion')) {
-        logNotification("Ya has combinado los fragmentos.", 'info');
-        closeAllModals();
-        showNote('fragmentos_combinacion');
-        return;
-    }
-    
-    if (hasItem('fragmento_a') && hasItem('fragmento_b') && hasItem('fragmento_c')) {
-        removeItem('fragmento_a', 1);
-        removeItem('fragmento_b', 1);
-        removeItem('fragmento_c', 1);
-        
-        addItem('fragmentos_combinacion', 'Combinación Parcial', 'L', 1, false, true);
-        logNotification("Has juntado todos los fragmentos. Forman una pista legible.", 'item');
-        
-        closeAllModals();
-        showNote('fragmentos_combinacion');
-    } else {
-        logNotification("Aún te faltan fragmentos para combinar.", 'info');
-        closeAllModals();
-    }
-}
-
 function changeRoomNoise(roomId, amount, isDecay = false) {
     if (!roomId) roomId = gameState.location;
     if (!gameState.roomNoise.hasOwnProperty(roomId)) return;
@@ -2172,7 +2297,6 @@ function changeRoomNoise(roomId, amount, isDecay = false) {
     let newNoise = Math.max(0, Math.min(100, currentNoise + amount));
     gameState.roomNoise[roomId] = newNoise;
     
-    // Evitar spam de notificaciones
     if (amount > 0 && !isDecay && !fuseGameActive && !resonanceGameActive) {
         updatePlayerStat('ansiedad', amount / 5);
         logNotification(`Ruido aumentado: +${Math.round(amount)}`, 'info');
@@ -2190,11 +2314,22 @@ function returnToPreviousLocation() {
 // --- Acciones de Nodos ---
 
 function onEnterPasilloIntro() {
+    // ESTA FUNCIÓN YA NO SE USA, pero se mantiene por seguridad
     if (gameState.flags.backpack_enabled) {
         showNode('pasillo_este_hub');
         return false; 
     }
     return true; 
+}
+
+// NUEVA: Función para el nodo 'parte1_fin_exito'
+function onEnterParte1Fin() {
+    gameEffects.playScare({ text: "SOMBRA EN EL SÓTANO", shake: true });
+    // BUGFIX: Dar mochila aquí
+    if (!gameState.flags.backpack_enabled) {
+        enableBackpack();
+        logNotification("Encuentras una [Mochila] junto a la puerta.", 'item');
+    }
 }
 
 function enableBackpack() {
@@ -2220,7 +2355,6 @@ function despertarRulo(type) {
 }
 
 function hablarRuloSala() {
-    // BUGFIX Ansiedad:
     if (gameState.playerStats.ansiedad > 65) {
         typeText("Rulo te ve, con los ojos muy abiertos por el pánico. Niega con la cabeza, sin dejarte hablar.", true, () => renderOptions(GAME_CONTENT.sala_vigilancia.options, 'sala_vigilancia'));
         return;
@@ -2240,7 +2374,6 @@ function hablarRuloSala() {
 function handleTalkRulo() {
     if (isTyping || isGamePaused()) return;
     
-    // BUGFIX Ansiedad:
     if (gameState.playerStats.ansiedad > 65) {
          typeText("RULO: '¡Aléjate! ¡Tu respiración... me pones nervioso!'", false, () => renderOptions(GAME_CONTENT[gameState.location].options, gameState.location));
         return;
@@ -2255,7 +2388,6 @@ function handleTalkRulo() {
     else if (gameState.flags.linterna_rulo && stats.bateria <= 10) text = "RULO: 'La luz... se apaga. Necesito otra batería.'";
     else {
         const roll = Math.random();
-        // TODO: Pista de Hab. Secreta
         if (roll < 0.3) {
             text = "RULO: '¿Oíste eso?'\nTe sientes un poco más ansioso.";
             updatePlayerStat('ansiedad', 2);
@@ -2337,7 +2469,7 @@ function buscarEnSala(roomId) {
         } else if (roll > (40 - findChance) && !hasItem('destornillador')) {
             text = "Encuentras un [Destornillador] en buen estado.";
             addItem('destornillador', 'Destornillador', 'C');
-        } else if (roll > (20 - findChance)) {
+        } else if (roll > (20 - findChance) && !hasItem('nota_rasgada')) {
             text = "Encuentras una [Nota Rasgada]: '...se alimenta del ruido.'";
             addItem('nota_rasgada', 'Nota Rasgada', 'R', 1, false, true);
         } else {
@@ -2362,11 +2494,12 @@ function buscarEnSala(roomId) {
     }
     
     if (roomId === 'oficina_seguridad') {
-         if (roll > (50 - findChance) && !hasItem('fragmento_c')) {
-            text = "En un archivador, encuentras el [Fragmento C].";
-            addItem('fragmento_c', 'Fragmento C', 'L', 1, false, true);
+         // Quitado el fragmento_c de aquí, ahora se encuentra con la linterna
+         if (roll > (50 - findChance)) {
+            text = "Encuentras un [Vendaje] sucio en un cajón.";
+            addItem('vendaje', 'Vendaje', 'C', 1, true);
         } else {
-             text += "Papeles inútiles.";
+             text += "Papeles inútiles y grapadoras rotas.";
          }
     }
     
@@ -2385,6 +2518,22 @@ function buscarEnSala(roomId) {
     
     typeText(text, true, () => renderOptions(GAME_CONTENT[roomId].options, roomId));
 }
+
+// NUEVA: Acción de la linterna de Rulo
+function useRuloFlashlight() {
+    let text = "Rulo apunta la linterna a un rincón oscuro, detrás de un archivador volcado.\n";
+    updateRuloStat('bateria', -5); // Coste de batería
+    
+    if (!hasItem('fragmento_c')) {
+        text += "La luz revela un número grabado en la pared. ¡Es un fragmento de código!\nHas encontrado el [Fragmento C].";
+        addItem('fragmento_c', 'Fragmento C', 'L', 1, false, true);
+    } else {
+        text += "No hay nada más que polvo y arañas.";
+    }
+    
+    typeText(text, true, () => renderOptions(GAME_CONTENT.oficina_seguridad.options, 'oficina_seguridad'));
+}
+
 
 function usarDestornilladorPanel() {
     const roll = rollD100();
@@ -2447,7 +2596,6 @@ function unlockSecretRoom() {
 }
 
 function hablarConRulo() {
-    // BUGFIX Ansiedad:
     if (gameState.playerStats.ansiedad > 65) {
         typeText("Intentas hablarle, pero tu respiración agitada lo asusta.\n'¡No te me acerques!'", true, () => renderOptions(GAME_CONTENT.pasillo_este_hub.options, 'pasillo_este_hub'));
         return;
@@ -2483,13 +2631,11 @@ function hablarConRulo() {
 function darBarritaRulo() {
     if (!hasItem('barrita')) return;
     
-    // BUGFIX Ansiedad:
     if (gameState.playerStats.ansiedad > 65) {
         typeText("Sacas la barrita, pero Rulo retrocede.\n'¡No quiero nada de ti!'", true, () => renderOptions(GAME_CONTENT.pasillo_este_hub.options, 'pasillo_este_hub'));
         return;
     }
     
-    // BUGFIX: No dar si ya te rechazó
     if (gameState.flags.rulo_rejected_join) {
         typeText("Rulo rechaza la barrita.\n'No. No quiero tu comida. Déjame.'", true, () => renderOptions(GAME_CONTENT.pasillo_este_hub.options, 'pasillo_este_hub'));
         return;
@@ -2520,8 +2666,6 @@ function darBarritaRulo() {
 
 
 function explorarPasillo() {
-    // BUGFIX: Esta acción NO activa 'pasillo_este_route_chosen'
-    
     const roll = rollD100();
     let text = "Revisas las cajas de cartón mojadas, haciendo algo de ruido...\n";
     changeRoomNoise(null, 12);
@@ -2629,23 +2773,19 @@ const NOTES_CONTENT = {
     },
     'fragmento_a': {
         title: "Fragmento A (Cifrado)",
-        content: "Un documento técnico. La mayor parte es ilegible, pero unos números están rodeados en rojo:\n\n...la frecuencia es la clave...\n\n... ( 4 ) ...\n... ( 8 ) ..."
-        // PARTE 2: El número '4' y '8' se reemplazarán por `gameState.flags.safe_code[0]`
+        content: "Un documento técnico. La mayor parte es ilegible..." // El contenido real se genera en showNote()
     },
      'fragmento_b': {
         title: "Fragmento B",
-        content: "Una nota de mantenimiento:\n\n'Dejaron la caja abierta otra vez. El código es demasiado simple. Es el número del proyector antiguo.'\n\n... ( 1 ) ..."
-        // PARTE 2: El número '1' se reemplazará
+        content: "Una nota de mantenimiento..." // El contenido real se genera en showNote()
     },
      'fragmento_c': {
         title: "Fragmento C",
-        content: "Un post-it:\n\n'Recordatorio: El último dígito es cuántos fallaron.'\n\n... ( 5 ) ..."
-         // PARTE 2: El número '5' se reemplazará
+        content: "Un post-it..." // El contenido real se genera en showNote()
     },
     'fragmentos_combinacion': {
-        title: "Combinación Parcial",
-        content: "Has unido los fragmentos. Parecen ser los 4 dígitos de un código, pero están desordenados.\n\n[ 4, 8, 1, 5 ]"
-        // PARTE 2: Esto mostrará los números aleatorios
+        title: "Combinación (Completa)",
+        content: "Has unido los fragmentos..." // El contenido real se genera en showNote()
     },
     'nota_eco_1': {
         title: "Hipótesis del Eco",
@@ -2662,8 +2802,8 @@ const NOTES_CONTENT = {
 };
 
 function getSafeCodeHint() {
-    // PARTE 2: Esta función devolverá los números aleatorios
-    return `Los números están desordenados:\n\n[ 4, 8, 1, 5 ]\n\n(El código es ${gameState.flags.safe_code})`;
+    const digits = gameState.flags.safe_digits || [4, 8, 1, 5];
+    return `Los números están desordenados:\n\n[ ${digits.join(', ')} ]`;
 }
 
 const GAME_CONTENT = {
@@ -2673,7 +2813,6 @@ const GAME_CONTENT = {
         options: []
     },
     
-    // --- Sala Vigilancia (HUB) ---
     'sala_vigilancia': {
         isLocationHub: true,
         isCheckpoint: true,
@@ -2724,7 +2863,6 @@ const GAME_CONTENT = {
         isInteraction: true,
         text: "Es un panel de mantenimiento estándar. Parece un poco suelto.",
         onEnter: () => {
-            // PARTE 2: Añadir check de cámara reparada
             if (hasItem('bateria') && hasItem('destornillador') && gameState.flags.rulo_awake && !gameState.flags.hab_secreta_unlocked) {
                  if (Math.random() < 0.15) {
                     unlockSecretRoom();
@@ -2742,9 +2880,9 @@ const GAME_CONTENT = {
     'parte1_fin_exito': {
         isInteraction: true,
         text: "La puerta al pasillo chisporrotea y se abre.\nUn golpe seco viene del sótano.",
-        onEnter: { func: "gameEffects.playScare", params: { text: "SOMBRA EN EL SÓTANO", shake: true } },
+        onEnter: { func: "onEnterParte1Fin" }, // <- Lógica de mochila añadida aquí
         options: [
-            { text: "[Entrar al Pasillo Este]", target: "pasillo_este_intro" },
+            { text: "[Entrar al Pasillo Este]", target: "pasillo_este_hub" }, // <- Dirige al hub
         ]
     },
     
@@ -2759,7 +2897,6 @@ const GAME_CONTENT = {
             },
             { text: "Examinar documentos", target: "sala_secreta_documentos" },
             { text: "Examinar panel inservible", target: "sala_secreta_panel" },
-            // PARTE 2: Añadir puzzle de placas y atajo
             { text: "Volver a la Sala de Vigilancia", target: "sala_vigilancia" }
         ]
     },
@@ -2785,10 +2922,11 @@ const GAME_CONTENT = {
         ]
     },
     
+    // Nodos de mochila (ahora obsoletos, pero se quedan por si acaso)
     'pasillo_este_intro': {
         isInteraction: true,
         isCheckpoint: true,
-        text: "Abres la puerta al pasillo Este. La luz de emergencia titila en rojo. A la derecha, apoyada contra una columna, hay una mochila vieja.",
+        text: "(OBSOLETO) Abres la puerta al pasillo Este. La luz de emergencia titila en rojo. A la derecha, apoyada contra una columna, hay una mochila vieja.",
         onEnter: { func: "onEnterPasilloIntro" }, 
         options: [
             { text: "Abrir la mochila", target: "abrir_mochila" }
@@ -2796,12 +2934,13 @@ const GAME_CONTENT = {
     },
     'abrir_mochila': {
         isInteraction: true,
-        text: "Abres la mochila. Está vacía, pero limpia. Transfieres tus cosas a ella.",
+        text: "(OBSOLETO) Abres la mochila. Está vacía, pero limpia. Transfieres tus cosas a ella.",
         onEnter: { func: "enableBackpack" }, 
         options: [
             { text: "Continuar por el pasillo", target: "pasillo_este_hub" }
         ]
     },
+    
     'pasillo_este_hub': {
         isLocationHub: true,
         isCheckpoint: true,
@@ -2865,10 +3004,10 @@ const GAME_CONTENT = {
     },
      'almacen_safe_fail': {
         isInteraction: true,
-        text: "Intentas forzar la cerradura. El metal se dobla, pero no cede. ¡Te cortas la mano!\n\n(Diálogo Rulo 1): '¡Imbécil! ¿Quieres que nos maten?'\n(Diálogo Rulo 2): '...déjalo. No vale la pena.'",
+        text: "Intentas forzar la cerradura. El metal se dobla, pero no cede. ¡Te cortas la mano!\n\nTe quejas en voz alta.\nRULO: '¡Imbécil! ¿Quieres que nos maten?'",
         onEnter: () => {
             changeRoomNoise('almacen', 40);
-            updatePlayerStat('vida', -15); // Daño por forzar
+            updatePlayerStat('vida', -15); 
             gameEffects.playScare("RUIDO METÁLICO", true);
         },
         options: [
@@ -2886,7 +3025,7 @@ const GAME_CONTENT = {
                 action: { func: "buscarEnSala", params: "oficina_seguridad" }, 
                 countsSearch: "oficina_seguridad"
             },
-            // PARTE 2: { text: "Usar linterna en rincón", action: {..}, condition: {..} }
+            { text: "Usar linterna de Rulo en el rincón", action: { func: "useRuloFlashlight" }, condition: { func: "checkRuloFlashlight" } },
             { text: "Volver al Pasillo Este", target: "pasillo_este_hub" }
         ]
     },
@@ -2963,9 +3102,10 @@ function init() {
     // Listeners Minijuego Fusibles
     $('#fuse-confirm-btn').addEventListener('click', confirmFuseSequence);
     $('#fuse-clear-btn').addEventListener('click', clearFuseSequence);
-    $('#fuse-cancel-btn').addEventListener('click', () => stopFuseMinigame(true)); // BOTÓN CANCELAR
+    $('#fuse-cancel-btn').addEventListener('click', () => stopFuseMinigame(true)); 
     
     // Listeners Minijuego Resonancia
+    resonanceCanvas.addEventListener('click', handleResonanceClick);
     $('#resonance-cancel-btn').addEventListener('click', () => stopResonanceMinigame(true)); 
     
     // Listeners Keypad Caja Fuerte
