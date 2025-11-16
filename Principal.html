@@ -30,7 +30,7 @@
 
         <!-- Pantalla: Menú Principal -->
         <div id="main-menu" class="hidden flex-col items-center justify-center h-full p-8">
-            <!-- NUEVO: Contenedor para que el z-index funcione -->
+            <!-- Contenedor para que el z-index funcione -->
             <div id="main-menu-content-wrapper" class="flex flex-col items-center justify-center h-full w-full">
                 <h1 class="text-6xl font-bold font-mono text-center mb-12" style="color: var(--theme-text); text-shadow: var(--theme-glow);">LA TRANSMISIÓN</h1>
                 
@@ -40,7 +40,7 @@
             </div>
         </div>
 
-        <!-- NUEVO: Pantalla de Selección de Dificultad -->
+        <!-- Pantalla de Selección de Dificultad -->
         <div id="difficulty-select-screen" class="hidden flex-col items-center justify-center h-full p-8">
             <h2 class="text-3xl font-bold mb-8" style="color: var(--theme-text);">SELECCIONA DIFICULTAD</h2>
             
@@ -67,7 +67,6 @@
             
             <button id="change-device-btn" class="btn text-xl w-64 mt-6">Cambiar Dispositivo</button>
             
-            <!-- NUEVO: Botón de Reset -->
             <button id="reset-data-btn" class="btn btn-danger text-xl w-64 mt-6">Resetear Datos</button>
             
             <button id="back-to-menu-btn" class="btn text-xl w-64 mt-auto">Volver</button>
@@ -80,11 +79,12 @@
             <div id="game-header" class="flex justify-between items-center">
                 <button id="game-back-to-menu-btn" class="btn text-sm py-2 px-4">MENÚ</button>
                 <div class="flex items-center space-x-4">
+                    <!-- Botón de Mochila (re-implementado) -->
                     <button id="backpack-btn" class="btn text-sm py-2 px-4 hidden">MOCHILA [M]</button>
                     <div id="player-state-button" class="text-sm">
                         ESTADO: <span id="player-state" class="font-bold life-ok">CALMADO</span>
                     </div>
-                    <!-- NUEVO: Medidor de Probabilidad de Monstruo -->
+                    <!-- Medidor de Probabilidad de Monstruo -->
                     <div id="monster-prob-hud" class="hidden">
                         PROB: <span id="monster-prob-value" class="font-bold">0%</span>
                     </div>
@@ -108,13 +108,13 @@
                     </div>
                 </div>
 
-                <!-- Columna Derecha (Notificaciones) - MODIFICADO: 'hidden' eliminado -->
-                <div id="notification-column" class="w-1/3 max-w-sm flex flex-col">
-                    <!-- NUEVO: Contenedor de Probabilidad (solo visible si Rulo acompaña) -->
+                <!-- Columna Derecha (Notificaciones) -->
+                <div id="notification-column" class_recreated="w-1/3 max-w-sm flex flex-col">
+                    <!-- Contenedor de Probabilidad (solo visible si Rulo acompaña) -->
                     <div id="rulo-prob-header" class="hidden p-2 text-center">
                         <!-- El JS llenará esto -->
                     </div>
-                    <div id="notification-log" class="flex-grow p-2 overflow-y-auto">
+                    <div id="notification-log" class="flex-grow p-2">
                         <!-- Notificaciones de monstruos y eventos aquí -->
                     </div>
                 </div>
@@ -135,23 +135,45 @@
                     <div id="location-menu" class="inline-block">
                         <!-- Botones de ubicación aquí -->
                     </div>
+                    <!-- Botón Hablar con Rulo -->
+                    <button id="talk-rulo-btn" class="btn text-sm py-1 px-3 ml-4 hidden">[ Hablar con Rulo ]</button>
                 </div>
             </div>
         </div>
 
         <!-- Modal de Mochila (Inventario) -->
         <div id="backpack-modal" class="modal hidden">
-            <h2 class="text-2xl font-bold mb-6">[ MOCHILA ]</h2>
+            <h2 class="modal-title">[ MOCHILA ]</h2>
             <div id="backpack-list" class="space-y-3 mb-6">
                 <!-- Items del inventario aquí -->
                 <div class="backpack-item">Cargando...</div>
             </div>
+            
+            <!-- Sección de Notas -->
+            <h3 class="modal-title-medium">[ NOTAS Y DOCUMENTOS ]</h3>
+            <div id="backpack-notes-list" class="space-y-2 mb-6">
+                <!-- Las notas (items clicables) aparecerán aquí -->
+                <div class="backpack-note-item">No has encontrado notas.</div>
+            </div>
+            
+            <!-- NUEVO: Botón Combinar -->
+            <button id="combine-fragments-btn" class="btn btn-easy w-full mb-4 hidden">[ Combinar Fragmentos ]</button>
+            
             <button id="close-backpack-btn" class="btn w-full">Cerrar mochila</button>
         </div>
         
+        <!-- Modal Lector de Notas -->
+        <div id="note-reader-modal" class="modal hidden">
+            <h2 id="note-reader-title" class="modal-title">[ TÍTULO DE LA NOTA ]</h2>
+            <div id="note-reader-content" class="note-content-box">
+                <p>El contenido de la nota aparecerá aquí...</p>
+            </div>
+            <button id="close-note-reader-btn" class="btn w-full mt-6">Cerrar nota</button>
+        </div>
+
         <!-- Modal de Estadísticas del Jugador -->
         <div id="player-stats-modal" class="modal hidden">
-            <h2 class="text-2xl font-bold mb-6">[ ESTADO DEL JUGADOR ]</h2>
+            <h2 class="modal-title">[ ESTADO DEL JUGADOR ]</h2>
             <ul id="player-stats-list" class="stats-list">
                 <!-- Stats se llenan dinámicamente -->
             </ul>
@@ -160,15 +182,14 @@
         
         <!-- Modal de Estadísticas de Rulo -->
         <div id="rulo-stats-modal" class="modal hidden">
-            <h2 class="text-2xl font-bold mb-6">[ ESTADO DE RULO ]</h2>
+            <h2 class="modal-title">[ ESTADO DE RULO ]</h2>
             <ul id="rulo-stats-list" class="stats-list">
                 <!-- Stats se llenan dinámicamente -->
-                <!-- El JS (Logica.js) necesita ser actualizado para mostrar Vida, Hambre y Agua aquí -->
             </ul>
             <button id="close-rulo-stats-btn" class="btn w-full">Cerrar</button>
         </div>
         
-        <!-- NUEVO: Modal de Confirmación Genérico -->
+        <!-- Modal de Confirmación Genérico -->
         <div id="confirm-modal" class="modal hidden">
             <h2 class="text-2xl font-bold mb-6">CONFIRMAR ACCIÓN</h2>
             <p id="confirm-message" class="mb-6">¿Estás seguro?</p>
@@ -178,13 +199,11 @@
             </div>
         </div>
         
-        <!-- MODIFICADO: Minijuego de Calma (Ansiedad) -->
+        <!-- Minijuego de Calma (Ansiedad) -->
         <div id="calm-minigame" class="hidden">
-            <h3 class="text-2xl font-bold mb-4">MANTÉN LA CALMA</h3>
+            <h3 class="calm-minigame-title">MANTÉN LA CALMA</h3>
             <p class="mb-6">Presiona [ESPACIO] o TOCA en la zona verde</p>
             
-            <!-- MODIFICADO: Añadido wrapper click/tap para móvil -->
-            <!-- La función checkCalmHit() debe existir en Logica.js -->
             <div id="calm-tap-area" onclick="checkCalmHit()">
                 <div id="calm-bar">
                     <div id="calm-target"></div>
@@ -195,7 +214,24 @@
             <button id="calm-cancel-btn" class="btn btn-secondary text-lg mt-6">Cancelar</button>
         </div>
         
-        <!-- NUEVO: Minijuego de Fusibles -->
+        <!-- Modal de Selección de Minijuego de Ruido -->
+        <div id="noise-minigame-select-modal" class="modal hidden">
+            <h2 class="modal-title">[ CONTROL DE RUIDO ]</h2>
+            
+            <div id="noise-select-current-noise" class="text-center text-lg mb-6">
+                Ruido actual: <span class="font-bold" style="color: var(--theme-agitated);">Cargando...</span>
+            </div>
+            
+            <p class="mb-6 text-center" style="color: var(--theme-text-dim);">Elige una acción para intentar reducir el ruido de la sala.</p>
+            
+            <div class="flex flex-col gap-4">
+                <button id="noise-select-fuse-btn" class="btn btn-medium w-full">Ordenar Fusibles (Rápido)</button>
+                <button id="noise-select-resonance-btn" class="btn btn-medium w-full">Cadena de Resonancia (Difícil)</button>
+                <button id="noise-select-cancel-btn" class="btn btn-secondary w-full mt-4">Cancelar</button>
+            </div>
+        </div>
+        
+        <!-- Minijuego de Fusibles -->
         <div id="fuse-minigame-modal" class="modal hidden">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-2xl font-bold">[ RECALIBRANDO FUSIBLES ]</h2>
@@ -218,6 +254,52 @@
                 <button id="fuse-confirm-btn" class="btn btn-easy w-1/2">CONFIRMAR</button>
                 <button id="fuse-clear-btn" class="btn btn-secondary w-1/2">LIMPIAR</button>
             </div>
+            
+            <!-- Botón de cancelar -->
+            <button id="fuse-cancel-btn" class="btn btn-secondary w-full mt-4">Cancelar</button>
+        </div>
+        
+        <!-- Minijuego Cadena de Resonancia -->
+        <div id="resonance-minigame-modal" class="modal modal-large hidden">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-2xl font-bold">[ CADENA DE RESONANCIA ]</h2>
+                <span id="resonance-timer" class="text-3xl font-bold" style="color: var(--theme-scare);">0.0</span>
+            </div>
+            
+            <div id="resonance-hint-box" class="hint-box mb-4">
+                SECUENCIA: Cargando...
+            </div>
+            
+            <div id="resonance-canvas-container" class="w-full">
+                <!-- El canvas se dibujará aquí. JS necesario. -->
+                <canvas id="resonance-canvas" width="600" height="400"></canvas>
+            </div>
+            
+            <button id="resonance-cancel-btn" class="btn btn-secondary w-full mt-6">Abortar recalibración</button>
+        </div>
+        
+        <!-- Modal de Teclado de Caja Fuerte -->
+        <div id="safe-keypad-modal" class="modal hidden">
+            <h2 class="modal-title">[ CAJA FUERTE ]</h2>
+            <p class="mb-6 text-center" style="color: var(--theme-text-dim);">Introduce la combinación de 4 dígitos.</p>
+            
+            <div id="safe-keypad-display" class="flex justify-center gap-4 mb-8">
+                <div id="keypad-digit-0" class="keypad-digit" data-value="0">0</div>
+                <div id="keypad-digit-1" class="keypad-digit" data-value="0">0</div>
+                <div id="keypad-digit-2" class="keypad-digit" data-value="0">0</div>
+                <div id="keypad-digit-3" class="keypad-digit" data-value="0">0</div>
+            </div>
+            
+            <div class="flex justify-between gap-4">
+                <button id="safe-keypad-confirm" class="btn btn-easy w-1/2">ABRIR</button>
+                <button id="safe-keypad-cancel" class="btn btn-secondary w-1/2">CANCELAR</button>
+            </div>
+        </div>
+        
+        <!-- Pantalla de Transición de Noche (HTML inicial debe estar oculto) -->
+        <div id="night-transition-overlay" class="hidden">
+            <div class="scanline-effect"></div>
+            <div id="night-transition-text" class="night-text-glitch" data-text="NOCHE 1">NOCHE 1</div>
         </div>
 
         
@@ -229,13 +311,17 @@
             <!-- El temporizador puede ir aquí -->
         </button>
         
-        <!-- NUEVO: Overlay de Muerte -->
+        <!-- Overlay de Muerte -->
         <div id="death-overlay" class="hidden"></div>
 
     </div>
 
-    <!-- Enlace al archivo JavaScript externo -->
-    <!-- (No modificar Logica.js según la instrucción) -->
-    <script src="Logica.js"></script>
+    <!-- 
+      CAMBIO IMPORTANTE: 
+      Ahora cargamos la lógica en dos partes.
+      El orden es importante.
+    -->
+    <script src="Logica_Parte1.js"></script>
+    <script src="Logica_Parte2.js"></script>
 </body>
 </html>
