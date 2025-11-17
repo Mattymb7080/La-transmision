@@ -152,12 +152,13 @@ body, html {
     overflow: hidden;
 }
 
-/* LAYOUT: Diálogo y Elecciones (Esto ya es correcto) */
+/* ¡CORRECCIÓN AQUI! */
 #main-content {
     display: flex;
     flex-direction: column;
     height: 100%; 
     border-right: 2px solid var(--primary-color);
+    overflow: hidden; /* <-- ESTA ES LA LÍNEA MÁGICA */
 }
 #dialogue-window {
     flex-grow: 1; /* Ocupa todo el espacio disponible */
@@ -397,10 +398,31 @@ body, html {
 .progress-bar-fill.hunger { background-color: var(--hunger-color); }
 .progress-bar-fill.thirst { background-color: var(--thirst-color); }
 .progress-bar-fill.energy { background-color: var(--energy-color); }
-.progress-bar-fill.fear { background-color: var(--fear-color); } /* NUEVO */
+.progress-bar-fill.fear { background-color: var(--fear-color); } 
+
+/* --- ANIMACIONES DE BARRA DE MIEDO --- */
+.progress-bar-fill.fear.fear-active {
+    animation: vibrate-fast 0.3s linear infinite;
+}
+.progress-bar-fill.fear.fear-critical {
+    animation: vibrate-fast 0.3s linear infinite, flicker-danger 1.5s linear infinite;
+}
+
+@keyframes vibrate-fast {
+    0% { transform: translateX(0); }
+    25% { transform: translateX(1px); }
+    50% { transform: translateX(0); }
+    75% { transform: translateX(-1px); }
+    100% { transform: translateX(0); }
+}
+
+@keyframes flicker-danger {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.8; }
+}
 
 
-/* --- NUEVO: ESTILOS MINIJUEGO TRANQUI-OSO --- */
+/* --- ESTILOS MINIJUEGO TRANQUI-OSO --- */
 #breathing-circle {
     width: 150px;
     height: 150px;
@@ -432,7 +454,7 @@ body, html {
     }
 }
 
-/* --- NUEVO: ESTILOS DE SCROLLBAR --- */
+/* --- ESTILOS DE SCROLLBAR --- */
 
 /* Scroll para Diálogo y Opciones (Estético) */
 #dialogue-window::-webkit-scrollbar,

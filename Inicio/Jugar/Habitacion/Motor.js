@@ -7,9 +7,11 @@
 import { getTheme, THEME_PALETTES, getDifficulty } from '../../settings-manager.js';
 
 // --- CONSTANTES ---
-const TYPING_SPEED_MS = 30;
+const TYPING_SPEED_MS = 38;
 const SAVE_KEY = 'la-transmision-savegame';
-const GAME_LOOP_INTERVAL_MS = 5000; // Loop principal cada 5 segundos
+const GAME_LOOP_INTERVAL_MS = 10000; // Loop principal cada 5 segundos
+// NUEVO: Cooldown para diálogos de sistema
+const SYSTEM_DIALOGUE_COOLDOWN_MS = 4500; 
 
 // --- ESTADO DEL JUEGO ---
 let GAME_STATE = {
@@ -317,7 +319,7 @@ function skipTyping() {
 /** Muestra un texto con efecto "typing" (AHORA SE PUEDE OMITIR) */
 export async function addDialogue(text, speaker = '') {
     // Si ya se está escribiendo, no hacer nada (previene doble clic)
-    if (isTyping) return; 
+    if (isTyping && speaker !== 'Sistema' && speaker !== 'Sonido') return; 
 
     const p = document.createElement('p');
     
@@ -333,6 +335,10 @@ export async function addDialogue(text, speaker = '') {
             p.appendChild(span);
             dom.dialogueWindow.appendChild(p);
             dom.dialogueWindow.scrollTop = dom.dialogueWindow.scrollHeight;
+            
+            // --- ACTUALIZADO: Cooldown para diálogos de sistema ---
+            await wait(SYSTEM_DIALOGUE_COOLDOWN_MS); 
+            // ---------------------------------------------------
             return;
         } else {
             span.textContent = `${speaker}:`;
@@ -483,10 +489,19 @@ export function updateRuloState(stat, value, isAbsolute = false) {
     saveGame();
 }
 
+// --- ACTUALIZADO: Funciones para mostrar botones de estado ---
+
+/** Muestra el botón de estado del Jugador */
+export function showPlayerStatsButton() {
+    dom.playerStatusBtn.classList.remove('hidden');
+}
+
 /** Muestra las estadísticas de Rulo en la UI */
 export function showRuloStats() {
     dom.ruloStatusBtn.classList.remove('hidden');
 }
+// --- FIN DE ACTUALIZACIÓN ---
+
 
 /** Añade un item al inventario y guarda */
 export function addItem(tab, item) {
@@ -553,13 +568,12 @@ function updateAllUI() {
     updatePlayerState('thirst', 0);
     updatePlayerState('fear', 0);
 
-    // Ocultar Rulo por defecto
-    dom.ruloStatusBtn.classList.add('hidden');
-    // dom.ruloStats.display.classList.add('hidden'); // No ocultar el display, solo el botón
+    // Ocultar Rulo por defecto (El botón de jugador se oculta en el HTML)
+    // dom.ruloStatusBtn.classList.add('hidden'); // Ya está hidden en HTML
     
-    // Mostrar Rulo si es relevante
+    // Mostrar Rulo si es relevante (PERO SU BOTÓN SEGUIRÁ OCULTO HASTA EL TUTORIAL)
     if (GAME_STATE.rulo.health < 100 || GAME_STATE.rulo.hasFlashlight || GAME_STATE.currentNight > 0) {
-        showRuloStats();
+        // showRuloStats(); // <-- NO mostrar el botón aún, solo actualizar datos
         updateRuloState('health', 0);
         updateRuloState('hunger', 0);
         updateRuloState('thirst', 0);
@@ -851,5 +865,3 @@ function endBreathingMinigame(success) {
         playAudio('estatica', 3); // Reproduce 3s de estática
     }
 }
-
-// Actualizado... Más o menos

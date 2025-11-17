@@ -55,11 +55,11 @@ async function startNight1_Intro() {
     await Game.wait(1500);
 
     // Tu nueva intro
+    // ACTUALIZADO: Eliminado Game.wait(500) y añadido await al último diálogo
     await Game.addDialogue("Tus párpados pesan. Un olor a antiséptico y... algo dulce y podrido, llena tu nariz. Te duele la cabeza. Abres los ojos.", "Sistema");
-    await Game.wait(500);
     await Game.addDialogue("La habitación está casi en completa oscuridad. La luz pálida de la luna se filtra por una ventana alta y enrejada. Estás en una camilla. En la otra, un bulto inmóvil.", "Sistema");
 
-    Game.addDialogue("[Sistema: Nuevas Interacciones Disponibles]", "Sistema");
+    await Game.addDialogue("[Sistema: Nuevas Interacciones Disponibles]", "Sistema");
     Game.addChoice("Observar entorno.", () => handleChoiceObserve());
     Game.addChoice("Llamar a la figura.", () => handleChoiceCall());
     Game.addChoice("Levantarse.", () => handleChoiceStand());
@@ -106,8 +106,14 @@ async function startRuloDialogue(skipWakeup = false) {
 }
 
 async function triggerStateTutorial() {
+    // ACTUALIZADO: Se mostrarán los botones de estado aquí
     await Game.addDialogue("[Sistema: Tutorial de Estado Activado]", "Sistema");
     Game.addNotification("¡Estados de personaje activados!");
+
+    // --- NUEVO: Mostrar botones de estado ---
+    Game.showPlayerStatsButton();
+    Game.showRuloStats(); 
+    // ----------------------------------------
     
     // Establecer valores iniciales (según tu guion)
     Game.updatePlayerState('health', 90, true);
@@ -120,7 +126,7 @@ async function triggerStateTutorial() {
     Game.updateRuloState('thirst', 45, true);
     Game.updateRuloState('fear', 15, true);
     
-    Game.showRuloStats();
+    // Game.showRuloStats(); // Movido arriba
     
     await Game.wait(500);
     await Game.addDialogue("Tengo sed. Y miedo. ¿Por qué nos dejarían aquí sin luz?", "Rulo");
@@ -129,7 +135,7 @@ async function triggerStateTutorial() {
     await Game.addDialogue("El sonido se detiene justo frente a su puerta. Ambos contienen la respiración.", "Sistema");
     await Game.addDialogue("¡No te muevas! ¡¿Oíste eso?!", "Rulo");
     
-    Game.addDialogue("[Sistema: Miedo Aumentado]", "Sistema");
+    await Game.addDialogue("[Sistema: Miedo Aumentado]", "Sistema"); // Await añadido
     Game.updatePlayerState('fear', 15); // Total 25
     Game.updateRuloState('fear', 15); // Total 30
     Game.addNotification("Miedo +15", "danger");
@@ -143,8 +149,8 @@ async function triggerStateTutorial() {
 
 // --- LÓGICA DE BÚSQUEDA ---
 
-function startRoomSearch() {
-    Game.addDialogue("[Sistema: Búsqueda Limitada]", "Sistema");
+async function startRoomSearch() {
+    await Game.addDialogue("[Sistema: Búsqueda Limitada]", "Sistema"); // Await añadido
     displaySearchOptions();
 }
 
@@ -243,7 +249,7 @@ async function triggerWindowEvent() {
     await Game.addDialogue("De repente, algo ENORME y pálido se estrella contra el cristal desde el exterior. Una masa de... ¿brazos? Una cara, pálida y sin ojos, se presiona contra el vidrio.", "Sistema");
     await Game.addDialogue("¡¡¡SKREEEEE!!!", "Sonido");
     
-    Game.addDialogue("[Sistema: PÁNICO]", "Sistema");
+    await Game.addDialogue("[Sistema: PÁNICO]", "Sistema"); // Await añadido
     Game.updatePlayerState('fear', 25); // Total 50
     Game.updateRuloState('fear', 30); // Total 65
     Game.addNotification("Miedo +25", "danger");
@@ -268,7 +274,7 @@ async function handleCheckWindowAgain() {
     await Game.addDialogue("¡Hazlo! Necesitamos saber a qué nos enfrentamos.", "Tú");
     await Game.addDialogue("Rulo, a regañadientes, enfoca el tembloroso haz de luz. La criatura está aferrada al edificio, inmóvil. Su piel pálida y húmeda brilla bajo la lluvia.", "Sistema");
     
-    Game.addDialogue("[Decisión Crítica: ¿En qué te concentras?]", "Sistema");
+    await Game.addDialogue("[Decisión Crítica: ¿En qué te concentras?]", "Sistema"); // Await añadido
     Game.addChoice("Observar su cuerpo", handleObserveBody);
     Game.addChoice("Observar su movimiento", handleObserveMovement);
 }
@@ -366,7 +372,7 @@ async function startExitSequence() {
     await Game.addDialogue("Bien. La puerta es la única salida. La ventana no es opción.", "Tú");
     await Game.addDialogue("Espera... 'El Conserje' del que hablaba la nota... se lleva a los que hacen ruido.", "Rulo");
     
-    Game.addDialogue("[Decisión: Salir de la Habitación 1204]", "Sistema");
+    await Game.addDialogue("[Decisión: Salir de la Habitación 1204]", "Sistema"); // Await añadido
     Game.addChoice("ESCUCHAR EN LA PUERTA", handleExitListen);
     Game.addChoice("ABRIR LA PUERTA DE GOLPE", handleExitBash);
     Game.addChoice("ABRIR LA PUERTA LENTAMENTE", handleExitSneak);
@@ -392,5 +398,3 @@ async function handleExitSneak() {
     await Game.addDialogue("Ahí... al final del pasillo. Las escaleras. Vamos... despacio.", "Rulo");
     await Game.addDialogue("[Sistema: El camino al pasillo está abierto.]", "Sistema");
 }
-
-// Actualizaciones necesarias!!
