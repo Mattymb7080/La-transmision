@@ -4,12 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>La Transmisión - Noche 1</title>
-    <link href="https://fonts.googleapis.com/css2?family=VT323&display.swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="Estilos-Juego.css">
 </head>
 <body data-theme="verde-crt">
 
-    <div id="name-input-overlay" class="overlay">
+    <div id="loading-overlay" class="overlay"></div>
+
+    <div id="name-input-overlay" class="overlay hidden">
         <div class="overlay-content">
             <h1>Insertar Nombre</h1>
             <input type="text" id="player-name-input" maxlength="20" placeholder="Escribe tu nombre...">
@@ -24,7 +26,7 @@
     <div id="game-container" class="hidden">
         
         <nav id="top-panel">
-            <a id="menu-btn" class="ui-btn" href="../../Inicio.html">☰</a>
+            <button id="menu-btn" class="ui-btn">☰</button>
             <div class="status-indicators">
                 <button id="player-status-btn" class="ui-btn status-btn"><span id="player-condition" class="condition-stable">Estable</span></button>
                 <button id="rulo-status-btn" class="ui-btn status-btn hidden"><span id="rulo-condition" class="condition-stable">Estable</span></button>
@@ -71,7 +73,6 @@
                     <button class="tab-link" data-tab="tab-notes">Notas</button>
                     <button class="tab-link" data-tab="tab-minigames">Minijuegos</button>
                 </div>
-                
                 <div id="tab-consumables" class="tab-content active"></div>
                 <div id="tab-key-items" class="tab-content"></div>
                 <div id="tab-notes" class="tab-content"></div>
@@ -99,6 +100,7 @@
                 <button class="close-btn" data-modal-id="status-modal">X</button>
             </div>
             <div class="modal-body">
+                
                 <div id="player-stats-display">
                     <h3 id="player-stats-name">TÚ</h3>
                     <div class="stat-row">
@@ -141,6 +143,7 @@
                         <span id="rulo-energy">0/100</span>
                     </div>
                 </div>
+                
             </div>
         </div>
     </div>
