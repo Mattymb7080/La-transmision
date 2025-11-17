@@ -1,10 +1,10 @@
 /* * Noche1.js
- * El guion para la Noche 1.
+ * El guion para la Noche 1 (Versión Actualizada).
  */
 
 import * as Game from './Motor.js';
 
-// --- Constantes de la Historia ---
+// --- Constantes de la Historia (Notas) ---
 const NOTAS = {
     nota1: {
         id: 'note1',
@@ -18,37 +18,54 @@ const NOTAS = {
     }
 };
 
+// --- ESTADO DE BÚSQUEDA ---
+let searchState = {
+    nightstand: true,
+    wardrobe: true,
+    underBeds: true,
+    window: true
+};
+
 // --- INICIO DEL JUEGO ---
 document.addEventListener('DOMContentLoaded', () => {
     Game.init();
+    // ¡CORRECCIÓN! Ocultar la carga PRIMERO
+    Game.hideLoadingScreen(); 
     
-    if (Game.isNewPlayer()) {
-        Game.promptForName(startNight1);
-    } else {
-        startNight1();
-    }
+    // Iniciar el juego
+    startGame();
 });
 
-async function startNight1() {
-    Game.showGameContainer();
-    Game.hideLoadingScreen(); // Oculta la pantalla de carga
+function startGame() {
+    if (Game.isNewPlayer()) {
+        // Ahora el prompt se verá, porque la carga ya se ocultó
+        Game.promptForName(startNight1_Intro); 
+    } else {
+        startNight1_Intro();
+    }
+}
 
+async function startNight1_Intro() {
+    Game.showGameContainer();
+    // Game.hideLoadingScreen(); // <-- Esta línea se movió
+    
     Game.showIntroOverlay(`Noche ${Game.getNightNumber()}`);
     await Game.wait(2500);
     Game.hideIntroOverlay();
-    await Game.wait(1500); // Aumenta la espera post-animación
+    await Game.wait(1500);
 
-    await Game.addDialogue("Tus párpados pesan como el plomo. Un olor a antiséptico y... algo más, algo dulce y podrido, llena tu nariz. Te duele la cabeza.", "Sistema");
-    await Game.addDialogue("Abres los ojos.", "Sistema");
+    // Tu nueva intro
+    await Game.addDialogue("Tus párpados pesan. Un olor a antiséptico y... algo dulce y podrido, llena tu nariz. Te duele la cabeza. Abres los ojos.", "Sistema");
     await Game.wait(500);
-    
+    await Game.addDialogue("La habitación está casi en completa oscuridad. La luz pálida de la luna se filtra por una ventana alta y enrejada. Estás en una camilla. En la otra, un bulto inmóvil.", "Sistema");
+
     Game.addDialogue("[Sistema: Nuevas Interacciones Disponibles]", "Sistema");
     Game.addChoice("Observar entorno.", () => handleChoiceObserve());
     Game.addChoice("Llamar a la figura.", () => handleChoiceCall());
     Game.addChoice("Levantarse.", () => handleChoiceStand());
 }
 
-// --- MANEJADORES DE ELECCIONES ---
+// --- MANEJADORES DE ELECCIONES INICIALES ---
 
 async function handleChoiceObserve() {
     await Game.addDialogue("Miras a tu alrededor. Es un cuarto de hospital viejo. El papel tapiz se está pelando. Ves una mesita de noche junto a tu cama y un armario metálico en la esquina. La figura en la otra cama no se mueve.", "Tú");
@@ -57,7 +74,8 @@ async function handleChoiceObserve() {
 
 async function handleChoiceCall() {
     await Game.addDialogue("Gritas débilmente, '¿Hola?'. El bulto se mueve. Un gemido.", "Tú");
-    await Game.addDialogue(`... ¿${Game.getPlayerName()}?... Es Rulo. Tu mejor amigo.`, "Rulo");
+    await Game.addDialogue(`... ¿${Game.getPlayerName()}?...`, "Rulo");
+    await Game.addDialogue("¡Rulo! Soy yo. ¿Estás bien?", "Tú");
     await startRuloDialogue(true);
 }
 
@@ -78,18 +96,20 @@ async function startRuloDialogue(skipWakeup = false) {
         await Game.addDialogue(`Ugh... mi cabeza... ¿${Game.getPlayerName()}?`, "Rulo");
     }
     
-    await Game.addDialogue("¿Dónde... dónde estamos? Esto no es... esto no es mi cuarto.", "Rulo");
-    await Game.addDialogue("Creo que es un hospital. Lo último que recuerdo... íbamos en tu auto. La tormenta era terrible, y esa luz cegadora... ¿chocamos?", "Tú");
-    await Game.addDialogue("No lo sé... No recuerdo el impacto. Solo... la luz. Y luego oscuridad. Me siento débil... y tengo sed.", "Rulo");
+    await Game.addDialogue("¿Dónde... dónde estamos? Esto no es mi cuarto.", "Rulo");
+    await Game.addDialogue("Creo que es un hospital. Lo último que recuerdo... íbamos en tu auto. La tormenta, y esa luz cegadora... ¿chocamos?", "Tú");
+    await Game.addDialogue("Sí... la luz. No recuerdo el impacto. Ugh, me siento débil... y todo es... raro.", "Rulo");
+    await Game.addDialogue("Mira ese teléfono. ¿Es... de una película? Es de esos que giran. Qué anticuado. ¿Por qué no hay una TV de pantalla plana? Todo este lugar parece... viejo.", "Rulo");
+    await Game.addDialogue("No sé, Rulo. Es... extraño. Todo parece... apagado.", "Tú");
     
     await triggerStateTutorial();
 }
 
 async function triggerStateTutorial() {
-    await Game.addDialogue("[Sistema: Tutorial de Estado]", "Sistema");
+    await Game.addDialogue("[Sistema: Tutorial de Estado Activado]", "Sistema");
     Game.addNotification("¡Estados de personaje activados!");
     
-    // Establecer valores iniciales
+    // Establecer valores iniciales (según tu guion)
     Game.updatePlayerState('health', 90, true);
     Game.updatePlayerState('hunger', 60, true);
     Game.updatePlayerState('thirst', 50, true);
@@ -102,11 +122,11 @@ async function triggerStateTutorial() {
     
     Game.showRuloStats();
     
-    await Game.wait(500); // Espera reducida
-    await Game.addDialogue("¿Por qué está todo tan oscuro? No me gusta esto. ¿Por qué nos dejarían aquí sin luz?", "Rulo");
-    await Game.addDialogue("Tranquilo. Vamos a revisar. Debe haber un interruptor.", "Tú");
+    await Game.wait(500);
+    await Game.addDialogue("Tengo sed. Y miedo. ¿Por qué nos dejarían aquí sin luz?", "Rulo");
     await Game.addDialogue("CRREEEEEEE... SHHH... BUMP.", "Sonido");
-    await Game.addDialogue("El sonido se detiene justo frente a su puerta.", "Sistema");
+    await Game.addDialogue("Un sonido metálico y húmedo, como algo pesado siendo arrastrado, resuena desde el pasillo.", "Sistema");
+    await Game.addDialogue("El sonido se detiene justo frente a su puerta. Ambos contienen la respiración.", "Sistema");
     await Game.addDialogue("¡No te muevas! ¡¿Oíste eso?!", "Rulo");
     
     Game.addDialogue("[Sistema: Miedo Aumentado]", "Sistema");
@@ -116,19 +136,12 @@ async function triggerStateTutorial() {
     Game.addNotification("Miedo de Rulo +15", "danger");
     
     await Game.wait(500);
-    await Game.addDialogue("Necesitamos luz. No podemos quedarnos aquí a oscuras. Revisa tu lado, yo revisaré el mío.", "Rulo");
+    await Game.addDialogue("Necesitamos luz. No podemos quedarnos aquí. Revisa tu lado, yo revisaré el mío. Pero... en silencio.", "Rulo");
     
     startRoomSearch();
 }
 
-// (El resto del script de búsqueda es idéntico al anterior)
-// ...
-
-let searchState = {
-    nightstand: true,
-    wardrobe: true,
-    underBeds: true
-};
+// --- LÓGICA DE BÚSQUEDA ---
 
 function startRoomSearch() {
     Game.addDialogue("[Sistema: Búsqueda Limitada]", "Sistema");
@@ -151,8 +164,17 @@ function displaySearchOptions() {
         Game.addChoice("Revisar debajo de las Camillas", searchUnderBeds);
         searchesLeft++;
     }
+    // Habilitar la ventana solo después del evento
+    if (!searchState.window && Game.getFlag('window_event_done')) {
+        Game.addChoice("Revisar la ventana otra vez", handleCheckWindowAgain);
+        searchesLeft++;
+    }
 
-    if (searchesLeft === 0) {
+    // Contar las búsquedas restantes (excepto la ventana)
+    const mainSearches = (searchState.nightstand ? 1:0) + (searchState.wardrobe ? 1:0) + (searchState.underBeds ? 1:0);
+
+    if (mainSearches === 0) {
+        // Si ya no quedan búsquedas principales, mostrar la salida
         startExitSequence();
     }
 }
@@ -161,53 +183,142 @@ async function searchNightstand() {
     searchState.nightstand = false;
     await Game.addDialogue("Hurgas en el cajón superior de la mesita. Tus dedos tocan metal frío y papel.", "Sistema");
     
-    Game.addItem('keyItems', { id: 'flashlight', name: 'Linterna', description: 'Una linterna pequeña.', energy: 15 });
+    // Items de tu guion
+    Game.addItem('keyItems', { id: 'flashlight', name: 'Linterna', energy: 15 });
     Game.addItem('notes', NOTAS.nota1);
     Game.addItem('consumables', { id: 'battery_spent', name: 'Baterías Gastadas', stack: 1, restore: 20 });
 
-    await Game.addDialogue("¡Una linterna! ¡Genial, dámela, yo alumbraré!", "Rulo");
+    await Game.addDialogue("¡Una linterna! No tiene mucha carga, la luz es débil.", "Tú");
+    await Game.addDialogue("¡Dámela, dámela! Yo alumbro. Odio la oscuridad. No puedo pensar a oscuras.", "Rulo");
     
-    Game.addChoice("DAR LINTERNA", handleGiveFlashlight);
-    Game.addChoice("NEGARSE", handleRefuseFlashlight);
+    Game.addChoice("[DAR LINTERNA]", handleGiveFlashlight);
+    Game.addChoice("[NEGARSE]", handleRefuseFlashlight);
 }
 
 async function handleGiveFlashlight() {
-    await Game.addDialogue("Confías en él. Rulo toma la linterna. Sus manos tiemblan, pero la enciende.", "Sistema");
+    await Game.addDialogue("Confías en él. Rulo la toma con manos temblorosas y la enciende. El débil haz de luz corta la oscuridad.", "Sistema");
+    
+    // Lógica del motor: Rulo tiene la linterna
     Game.removeItem('keyItems', 'flashlight');
     Game.updateRuloState('hasFlashlight', true);
-    Game.updateRuloState('energy', 15, true);
+    Game.updateRuloState('energy', 15, true); // Le da 15 de energía
     
-    await triggerWindowEvent();
+    await readNote1();
 }
 
 async function handleRefuseFlashlight() {
-    await Game.addDialogue(`Le dices que tú la llevarás. Rulo te mira dolido. 'No es momento de ser egoísta, ${Game.getPlayerName()}'.`, "Tú");
+    await Game.addDialogue("Le dices que tú la llevarás. Rulo te mira dolido. 'No es momento de ser egoísta, [Nombre del Jugador]'.", "Tú");
     Game.updateRuloState('fear', 10);
     Game.addNotification("Miedo de Rulo +10", "danger");
     
-    await triggerWindowEvent();
+    await Game.wait(1000);
+    await Game.addDialogue("... (Rulo te la arrebata) ... ¡Dámela! Yo la llevaré.", "Rulo");
+    await handleGiveFlashlight(); // Forzar entrega
+}
+
+async function readNote1() {
+    await Game.addDialogue("También hay una... nota. Y una batería, pero parece medio muerta.", "Tú");
+    await Game.addDialogue("Cualquier cosa sirve. ¿Qué dice la nota? Alumbra.", "Rulo");
+    await Game.addDialogue("Leen la Nota #1: 'Hoja de Paciente'.", "Sistema");
+    Game.showNoteReader(NOTAS.nota1.name, NOTAS.nota1.content);
+    
+    await Game.wait(1000);
+    await Game.addDialogue("...'Alimento'. Rulo, ¿qué significa 'alimento'?", "Tú");
+    await Game.addDialogue("¡Esto es una broma! ¡Tiene que ser una broma de mal gusto! ¡'La Cosecha'! ¡¿Qué hospital escribe esto?! ¡Sácame de aquí, [Nombre del Jugador]! ¡YA!", "Rulo");
+    Game.updateRuloState('fear', 10);
+    Game.addNotification("Miedo de Rulo +10", "danger");
+
+    await triggerWindowEvent(); // Evento fijo
 }
 
 async function triggerWindowEvent() {
+    Game.setFlag('window_event_done', true); // Marcar que el evento ocurrió
+    searchState.window = false; // Permitir que se revise de nuevo
+    
+    await Game.addDialogue("Rulo, ahora sosteniendo la linterna, barre la habitación: las paredes desconchadas, una silla de ruedas volcada, la puerta metálica... y luego, la ventana enrejada.", "Sistema");
     await Game.addDialogue("Voy a... voy a ver qué hay afuera.", "Rulo");
     await Game.addDialogue("Apunta el haz hacia la ventana. Al principio, solo ven la lluvia golpeando el cristal.", "Sistema");
     await Game.wait(500);
     await Game.addDialogue("No veo na...", "Rulo");
-    await Game.addDialogue("De repente, algo ENORME y pálido se estrella contra el cristal desde el exterior.", "Sistema");
+    await Game.addDialogue("De repente, algo ENORME y pálido se estrella contra el cristal desde el exterior. Una masa de... ¿brazos? Una cara, pálida y sin ojos, se presiona contra el vidrio.", "Sistema");
     await Game.addDialogue("¡¡¡SKREEEEE!!!", "Sonido");
     
     Game.addDialogue("[Sistema: PÁNICO]", "Sistema");
     Game.updatePlayerState('fear', 25); // Total 50
-    Game.updateRuloState('fear', 30); // Total 60
+    Game.updateRuloState('fear', 30); // Total 65
     Game.addNotification("Miedo +25", "danger");
     Game.addNotification("Miedo de Rulo +30", "danger");
 
     await Game.addDialogue("¡¡APÁGALA!! ¡¡APÁGALA!!", "Rulo");
-    await Game.addDialogue("Rulo grita y deja caer la linterna. La habitación vuelve a sumirse en la oscuridad.", "Sistema");
+    await Game.addDialogue("Rulo grita y deja caer la linterna. La habitación vuelve a sumirse en la oscuridad, excepto por la linterna en el suelo, que parpadea erráticamente.", "Sistema");
     await Game.addDialogue("¡Rulo, cálmate! ¡Levanta la linterna! ¡Rápido!", "Tú");
-    await Game.addDialogue("Rulo la recoge, temblando. 'Lo siento... yo... ¿qué era eso? Estamos en el piso 12... ¡nada puede estar ahí fuera!'", "Rulo");
-    await Game.wait(500);
+    await Game.addDialogue("Rulo la recoge, temblando. '¡¿Qué era eso?! ¡Estamos en el piso 12! ¡Nada puede estar ahí fuera!'", "Rulo");
+    
+    await Game.addDialogue("Rulo... Rulo, cálmate. Tenemos que ser listos. Respira.", "Tú");
+    Game.addNotification("Nueva opción de búsqueda disponible: Ventana.");
+    
+    displaySearchOptions(); // Volver a las opciones
+}
 
+async function handleCheckWindowAgain() {
+    searchState.window = true; // Marcar como "revisada" para que no vuelva a salir
+    
+    await Game.addDialogue("Rulo, alumbra la ventana. Con cuidado. Quiero ver algo.", "Tú");
+    await Game.addDialogue("¡Estás loco! ¡No voy a...", "Rulo");
+    await Game.addDialogue("¡Hazlo! Necesitamos saber a qué nos enfrentamos.", "Tú");
+    await Game.addDialogue("Rulo, a regañadientes, enfoca el tembloroso haz de luz. La criatura está aferrada al edificio, inmóvil. Su piel pálida y húmeda brilla bajo la lluvia.", "Sistema");
+    
+    Game.addDialogue("[Decisión Crítica: ¿En qué te concentras?]", "Sistema");
+    Game.addChoice("Observar su cuerpo", handleObserveBody);
+    Game.addChoice("Observar su movimiento", handleObserveMovement);
+}
+
+async function handleObserveBody() {
+    await Game.addDialogue("Miras de cerca. Su piel parece... blanda y gomosa. Pero ves algo brillando en la pared, cerca de ella. ¿Cables eléctricos? Están rotos, chispeando bajo la lluvia cerca de donde la criatura trepó.", "Sistema");
+    Game.addNotification("Flag Oculta Obtenida: Debilidad Eléctrica", "item");
+    Game.setFlag('weakness_electric', true);
+    await creatureLeaves();
+}
+
+async function handleObserveMovement() {
+    await Game.addDialogue("Esperas. La criatura gira su 'cabeza' sin ojos hacia un relámpago lejano, y luego hacia el zumbido de un aire acondicionado roto dos pisos más abajo. Parece reaccionar con extrema sensibilidad al sonido y a las luces brillantes.", "Sistema");
+    Game.addNotification("Flag Oculta Obtenida: Sensible al Sonido/Luz", "item");
+    Game.setFlag('weakness_sound_light', true);
+    await creatureLeaves();
+}
+
+async function creatureLeaves() {
+    await Game.addDialogue("La criatura se aleja, bajando ágilmente por el edificio.", "Sistema");
+    await Game.addDialogue("¿Viste eso? Se fue... está bajando. Qué asco.", "Rulo");
+    await Game.addDialogue("Sí. Creo que noté algo... Sigamos buscando.", "Tú");
+    displaySearchOptions();
+}
+
+async function searchUnderBeds() {
+    searchState.underBeds = false;
+    await Game.addDialogue("Deciden revisar bajo las camas. Rulo alumbra el suelo polvoriento.", "Sistema");
+    await Game.addDialogue("¡Espera! ¡Ahí!", "Rulo");
+    
+    // Items de tu guion
+    Game.addItem('notes', NOTAS.nota2);
+    Game.addItem('consumables', { id: 'battery_spent', name: 'Baterías Gastadas', stack: 1, restore: 20 });
+    Game.addItem('minigames', { id: 'tranqui_oso', name: 'Tranqui-Oso', description: "Un viejo oso de peluche. Te calma." });
+
+    await Game.addDialogue("Hay otra nota... está arrugada.", "Tú");
+    Game.showNoteReader(NOTAS.nota2.name, NOTAS.nota2.content);
+    await Game.wait(1000);
+    
+    await Game.addDialogue("¿El... Conserje? ¿Por qué... por qué está tu nombre ahí, Rulo? ¿'Si alguien llamado Rulo lee esto'?", "Tú");
+    await Game.addDialogue("¡No! ¡Imposible! ¡Esto es una trampa! ¡Alguien está jugando con nosotros! ¡Mi nombre... cómo...!", "Rulo");
+    Game.updateRuloState('fear', 15);
+    Game.addNotification("Miedo de Rulo +15", "danger");
+    
+    await Game.addDialogue("Esto es... raro. Es un oso de peluche. Le falta un ojo y parece muy viejo.", "Tú");
+    await Game.addDialogue("¿Un juguete? ¿De quién es esto? Qué... triste. Me da escalofríos. Déjalo, debe estar sucio.", "Rulo");
+    await Game.addDialogue("No... Siento... siento como si lo conociera. Como de un sueño... o una pesadilla. Lo guardaré.", "Tú");
+    await Game.addDialogue("[Sistema: ¡Tranqui-Oso Obtenido! Abre la Mochila (Pestaña Minijuegos) cuando tu Miedo sea > 60% para intentar 'Respiración Controlada'.]", "Sistema");
+
+    await Game.wait(500);
     displaySearchOptions();
 }
 
@@ -217,48 +328,51 @@ async function searchWardrobe() {
     Game.updatePlayerState('fear', 5);
     Game.addNotification("Miedo +5", "danger");
     await Game.addDialogue("Dentro hay una caja de cartón con la etiqueta 'Efectos Personales'.", "Sistema");
+    await Game.addDialogue("[Sistema: Saqueo de Caja (Obtendrás 3 items al azar)]", "Sistema");
     
-    if (Math.random() <= 0.60) Game.addItem('consumables', { id: 'water', name: 'Agua Embotellada', stack: 1, restore: 30 });
-    if (Math.random() <= 0.50) Game.addItem('consumables', { id: 'cereal', name: 'Barra de Cereal Rancia', stack: 1, restore: 20 });
-    if (Math.random() <= 0.40) Game.addItem('consumables', { id: 'battery_spent', name: 'Baterías Gastadas', stack: 2, restore: 20 });
-    if (Math.random() <= 0.30) Game.addItem('consumables', { id: 'bandage', name: 'Venda Sucia', stack: 1, restore: 10 });
-    if (Math.random() <= 0.15) Game.addItem('consumables', { id: 'pills', name: 'Píldoras "Calmantes"', stack: 1, restore: -30 });
-    if (Math.random() <= 0.05) Game.addItem('minigames', { id: 'tranqui_oso', name: 'Juguete "Tranqui-Oso"', description: "Reduce el miedo." });
+    // Simulación de 3 items
+    for (let i = 0; i < 3; i++) {
+        await Game.wait(500);
+        let roll = Math.random();
+        
+        if (roll <= 0.15) {
+            Game.addItem('consumables', { id: 'pills', name: 'Píldoras "Calmantes"', stack: 1, restore: -30 });
+        } else if (roll <= 0.30) {
+            Game.addItem('consumables', { id: 'bandage', name: 'Venda Sucia', stack: 1, restore: 10 });
+        } else if (roll <= 0.40) {
+            Game.addItem('consumables', { id: 'battery_spent', name: 'Baterías Gastadas', stack: 2, restore: 20 });
+        } else if (roll <= 0.50) {
+            Game.addItem('consumables', { id: 'cereal', name: 'Barra de Cereal Rancia', stack: 1, restore: 20 });
+        } else if (roll <= 0.60) {
+            Game.addItem('consumables', { id: 'water', name: 'Agua Embotellada', stack: 1, restore: 30 });
+        } else {
+            await Game.addDialogue("...polvo y pelusa.", "Sistema");
+        }
+    }
 
     await Game.wait(500);
     displaySearchOptions();
 }
 
-async function searchUnderBeds() {
-    searchState.underBeds = false;
-    await Game.addDialogue("Deciden revisar bajo las camas. Rulo alumbra el suelo polvoriento.", "Sistema");
-    await Game.addDialogue("¡Espera! ¡Ahí!", "Rulo");
-    
-    Game.addItem('notes', NOTAS.nota2);
-    Game.addItem('consumables', { id: 'battery_spent', name: 'Baterías Gastadas', stack: 1, restore: 20 });
-
-    await Game.wait(500);
-    displaySearchOptions();
-}
 
 async function startExitSequence() {
     await Game.wait(500);
-    await Game.addDialogue("La linterna de Rulo parpadea.", "Sistema");
-    await Game.addDialogue("La batería se está muriendo. Tenemos que usar las que encontramos.", "Rulo");
+    await Game.addDialogue("La linterna de Rulo parpadea agresivamente.", "Sistema");
+    await Game.addDialogue("¡La batería! ¡Se muere! ¡Rápido, ponle una de las que encontramos!", "Rulo");
     await Game.addDialogue("[Sistema: Abre la mochila (I), ve a 'Consumibles' y usa 'Baterías Gastadas' para recargar la linterna.]", "Sistema");
     
-    await Game.wait(500);
-    await Game.addDialogue("Bien. La puerta es la única salida. ¿El pasillo o la ventana?", "Tú");
-    await Game.addDialogue("¡La ventana no! ¡Estamos a 12 pisos de altura y esa cosa estaba ahí! Tiene que ser la puerta. Pero... ¿y 'El Conserje' del que hablaba la nota?", "Rulo");
-    await Game.wait(500);
-
+    await Game.wait(1000); // Dar tiempo al jugador para que lo haga si quiere
+    
+    await Game.addDialogue("Bien. La puerta es la única salida. La ventana no es opción.", "Tú");
+    await Game.addDialogue("Espera... 'El Conserje' del que hablaba la nota... se lleva a los que hacen ruido.", "Rulo");
+    
     Game.addDialogue("[Decisión: Salir de la Habitación 1204]", "Sistema");
     Game.addChoice("ESCUCHAR EN LA PUERTA", handleExitListen);
     Game.addChoice("ABRIR LA PUERTA DE GOLPE", handleExitBash);
     Game.addChoice("ABRIR LA PUERTA LENTAMENTE", handleExitSneak);
 }
 
-// --- SECUENCIAS DE SALIDA (SIN "FIN DE LA DEMO") ---
+// --- SECUENCIAS DE SALIDA ---
 
 async function handleExitListen() {
     await Game.addDialogue("Te acercas y pegas la oreja a la puerta metálica. Silencio total. Demasiado silencio.", "Tú");
@@ -268,12 +382,15 @@ async function handleExitListen() {
 }
 async function handleExitBash() {
     await Game.addDialogue("Abres la puerta con fuerza. El pasillo está oscuro y vacío, pero el ruido ha alertado a algo a lo lejos.", "Sistema");
-    await Game.addDialogue("[Sistema: El camino al pasillo está abierto.]", "Sistema");
-    // Aquí comenzaría un evento de persecución
+    await Game.addDialogue("Oyes un eco metálico que se acerca.", "Sistema");
+    await Game.addDialogue("[Sistema: El camino al pasillo está abierto. COMIENZA PERSECUCIÓN]", "Sistema");
 }
 async function handleExitSneak() {
-    await Game.addDialogue("Abres la puerta con cuidado. El pasillo está oscuro. Rulo alumbra. Ven un rastro húmedo y oscuro que se aleja.", "Sistema");
-    Game.setLocation("Pasillo Piso 12"); // Ejemplo de uso de la nueva función
-    await Game.wait(1000); // Corrección de errata (era Game.all)
+    await Game.addDialogue("Abres la puerta con cuidado. El pasillo está oscuro. Rulo alumbra. Ven un rastro húmedo y oscuro que se aleja hacia... las escaleras del Piso 11.", "Sistema");
+    Game.setLocation("Pasillo Piso 12");
+    await Game.wait(1000);
+    await Game.addDialogue("Ahí... al final del pasillo. Las escaleras. Vamos... despacio.", "Rulo");
     await Game.addDialogue("[Sistema: El camino al pasillo está abierto.]", "Sistema");
 }
+
+// Actualizaciones necesarias!!

@@ -851,3 +851,5 @@ function endBreathingMinigame(success) {
         playAudio('estatica', 3); // Reproduce 3s de estática
     }
 }
+
+// Actualizado... Más o menos
