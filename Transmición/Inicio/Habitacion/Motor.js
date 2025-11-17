@@ -3,20 +3,23 @@
  * Maneja la UI, el estado, el inventario, el guardado y los eventos.
  */
 
-import { getTheme, THEME_PALETTES } from '../../settings-manager.js';
+// IMPORTAMOS LA DIFICULTAD
+import { getTheme, THEME_PALETTES, getDifficulty } from '../../settings-manager.js';
 
 // --- CONSTANTES ---
 const TYPING_SPEED_MS = 30;
 const SAVE_KEY = 'la-transmision-savegame';
+const GAME_LOOP_INTERVAL_MS = 5000; // Loop principal cada 5 segundos
 
 // --- ESTADO DEL JUEGO ---
 let GAME_STATE = {
     playerName: "Tú",
     currentNight: 1,
+    difficulty: "normal", // Se cargará al iniciar
     player: { health: 100, hunger: 100, thirst: 100, fear: 0 },
     rulo: { health: 100, hunger: 100, thirst: 100, fear: 0, energy: 0, hasFlashlight: false },
     inventory: { consumables: [], keyItems: [], notes: [], minigames: [] },
-    flags: {},
+    flags: {}, // Para rastrear decisiones (ej. ventana)
     currentLocation: "Habitación 1204"
 };
 
@@ -28,16 +31,30 @@ let activeModal = null;
 let isTyping = false;
 let forceSkipTyping = false;
 
+// --- ESTADO DEL MINIJUEGO ---
+let minigame = {
+    isActive: false,
+    breaths: 0,
+    isHolding: false
+};
+
+// --- CACHÉ DE AUDIO ---
+let audioCache = {
+    // ¡CORRECCIÓN DE RUTA! (Debe subir 2 niveles desde Habitacion/ para llegar a Transmicion/)
+    estatica: new Audio('../../Assets/Audios/Estatica.mp3')
+};
+
 
 // --- FUNCIONES DE INICIALIZACIÓN ---
 
 export function init() {
-    loadGame(); 
+    loadGame();
+    loadDifficulty(); // Carga la dificultad
 
     dom = {
         gameContainer: document.getElementById('game-container'),
         // Overlays
-        loadingOverlay: document.getElementById('loading-overlay'), // NUEVO
+        loadingOverlay: document.getElementById('loading-overlay'),
         nameOverlay: document.getElementById('name-input-overlay'),
         nameInput: document.getElementById('player-name-input'),
         nameConfirmBtn: document.getElementById('confirm-name-btn'),
@@ -56,22 +73,33 @@ export function init() {
         inventoryModal: document.getElementById('inventory-modal'),
         statusModal: document.getElementById('status-modal'),
         noteReaderModal: document.getElementById('note-reader-modal'),
+        minigameModal: document.getElementById('minigame-modal'), // Minijuego
         
         // Botones de UI
-        menuBtn: document.getElementById('menu-btn'), // NUEVO
+        menuBtn: document.getElementById('menu-btn'),
         inventoryBtn: document.getElementById('inventory-btn'),
         playerStatusBtn: document.getElementById('player-status-btn'),
         ruloStatusBtn: document.getElementById('rulo-status-btn'),
         
         // Contenido de Modales
-        tabs: { /* ... (idéntico) ... */ },
+        tabs: {
+            consumables: document.getElementById('tab-consumables'),
+            keyItems: document.getElementById('tab-key-items'),
+            notes: document.getElementById('tab-notes'),
+            minigames: document.getElementById('tab-minigames')
+        },
         tabLinks: document.querySelectorAll('.tab-link'),
         noteTitle: document.getElementById('note-title'),
         noteContent: document.getElementById('note-content'),
         
+        // Contenido Minijuego
+        breathingCircle: document.getElementById('breathing-circle'),
+        breathCount: document.getElementById('breath-count'),
+        minigameInstructions: document.getElementById('minigame-instructions'),
+
         // Stats
         playerStats: {
-            display: document.getElementById('player-stats-display'), // NUEVO
+            display: document.getElementById('player-stats-display'),
             name: document.getElementById('player-stats-name'),
             health: document.getElementById('player-health'),
             healthBar: document.getElementById('player-health-bar'),
@@ -89,6 +117,8 @@ export function init() {
             hungerBar: document.getElementById('rulo-hunger-bar'),
             thirst: document.getElementById('rulo-thirst'),
             thirstBar: document.getElementById('rulo-thirst-bar'),
+            fear: document.getElementById('rulo-fear'), // NUEVO
+            fearBar: document.getElementById('rulo-fear-bar'), // NUEVO
             energy: document.getElementById('rulo-energy'),
             energyBar: document.getElementById('rulo-energy-bar'),
             condition: document.getElementById('rulo-condition')
@@ -100,10 +130,19 @@ export function init() {
     setupInventoryTabListeners();
     setupGlobalKeyListener();
     updateAllUI();
+    
+    startGameLoop(); // Inicia el loop principal del juego
+}
+
+/** Carga la dificultad desde el settings-manager */
+function loadDifficulty() {
+    GAME_STATE.difficulty = getDifficulty() || 'normal';
+    console.log('Dificultad cargada:', GAME_STATE.difficulty);
 }
 
 /** Configura los listeners para todos los modales y atajos */
 function setupModalListeners() {
+    // ... (idéntico)
     // Botón de Inventario
     dom.inventoryBtn.addEventListener('click', () => showModal(dom.inventoryModal));
     
@@ -137,7 +176,6 @@ function setupModalListeners() {
 
 /** Configura listeners para las pestañas del inventario */
 function setupInventoryTabListeners() {
-    // ... (idéntico a la versión anterior)
     dom.tabLinks.forEach(link => {
         link.addEventListener('click', () => {
             const tabId = link.getAttribute('data-tab');
@@ -154,6 +192,7 @@ function setupInventoryTabListeners() {
 
 /** Configura el listener global de teclado (ESC, I, E) */
 function setupGlobalKeyListener() {
+    // ... (idéntico, excepto por el skip)
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             e.preventDefault();
@@ -165,6 +204,7 @@ function setupGlobalKeyListener() {
         }
         
         if (dom.nameOverlay.style.display !== 'none') return;
+        if (minigame.isActive) return; // No abrir menús durante minijuego
 
         if (e.key === 'i' || e.key === 'I') {
             e.preventDefault();
@@ -183,6 +223,40 @@ function setupGlobalKeyListener() {
 
     // Listener para OMITIR DIÁLOGO
     dom.gameContainer.addEventListener('click', skipTyping);
+}
+
+
+// --- LOOP PRINCIPAL DEL JUEGO ---
+
+/** Inicia el loop principal para manejar drenajes de estado y eventos pasivos */
+function startGameLoop() {
+    setInterval(() => {
+        // 1. Lógica de la Linterna
+        if (GAME_STATE.rulo.hasFlashlight && GAME_STATE.rulo.energy > 0) {
+            // Rulo tiene la linterna, drenaje normal
+            // (La dificultad podría afectar 'drainRate')
+            let drainRate = 1; 
+            updateRuloState('energy', -drainRate);
+            
+            if (GAME_STATE.rulo.energy === 0) {
+                addNotification("¡La batería de la linterna se agotó!", "danger");
+            }
+        } 
+        // Si el jugador tuviera la linterna:
+        // else if (GAME_STATE.player.hasFlashlight && GAME_STATE.player.energy > 0) {
+        //     let drainRate = 3; // Drenaje rápido
+        //     updatePlayerState('energy', -drainRate);
+        // }
+        
+        // 2. Lógica de Oscuridad (Miedo Progresivo)
+        if (GAME_STATE.rulo.energy <= 0 && GAME_STATE.rulo.hasFlashlight) { // Solo si ya tuvo linterna
+            // Está oscuro
+            addNotification("Está oscuro... demasiado oscuro...", "danger");
+            updatePlayerState('fear', 1);
+            updateRuloState('fear', 1);
+        }
+
+    }, GAME_LOOP_INTERVAL_MS);
 }
 
 
@@ -248,7 +322,6 @@ export async function addDialogue(text, speaker = '') {
     const p = document.createElement('p');
     
     if (speaker) {
-        // ... (lógica de hablante idéntica)
         const span = document.createElement('span');
         span.className = 'dialogue-speaker';
         
@@ -276,16 +349,18 @@ export async function addDialogue(text, speaker = '') {
     isTyping = true;
     forceSkipTyping = false;
     
-    for (let i = 0; i < text.length; i++) {
+    const textToType = (speaker && speaker !== 'Sistema' && speaker !== 'Sonido') ? `: ${text}` : text;
+    
+    for (let i = 0; i < textToType.length; i++) {
         if (forceSkipTyping) {
             break; // Salir del bucle
         }
-        textSpan.textContent += text[i];
+        textSpan.textContent += textToType[i];
         dom.dialogueWindow.scrollTop = dom.dialogueWindow.scrollHeight;
         await wait(TYPING_SPEED_MS);
     }
     
-    textSpan.textContent = text; // Asegura que el texto esté completo
+    textSpan.textContent = textToType; // Asegura que el texto esté completo
     textSpan.classList.remove('typing-cursor');
     isTyping = false;
     forceSkipTyping = false;
@@ -293,12 +368,20 @@ export async function addDialogue(text, speaker = '') {
 
 /** Muestra una notificación en el panel derecho */
 export function addNotification(text, type = 'info') {
-    // ... (idéntico a la versión anterior)
     const notif = document.createElement('div');
     notif.className = `notification ${type}`;
     notif.textContent = text;
     dom.notificationPanel.appendChild(notif);
-    dom.notificationPanel.scrollTop = dom.notificationPanel.scrollHeight;
+    
+    // Auto-scroll
+    setTimeout(() => {
+         dom.notificationPanel.scrollTop = dom.notificationPanel.scrollHeight;
+    }, 100);
+   
+    // Limpiar notificaciones viejas (opcional)
+    if (dom.notificationPanel.children.length > 20) {
+        dom.notificationPanel.removeChild(dom.notificationPanel.firstChild);
+    }
 }
 
 /** Limpia todas las opciones de la ventana de elecciones */
@@ -308,13 +391,13 @@ export function clearChoices() {
 
 /** Añade una nueva elección */
 export function addChoice(text, callback) {
-    // ... (idéntico a la versión anterior)
     const a = document.createElement('a');
     a.className = 'choice-link';
     a.href = '#';
     a.textContent = `[ ${text} ]`;
     a.onclick = (e) => {
         e.preventDefault();
+        if (isTyping) return; // No permitir elecciones mientras se escribe
         clearChoices();
         callback();
     };
@@ -323,7 +406,6 @@ export function addChoice(text, callback) {
 
 /** Muestra el lector de notas */
 export function showNoteReader(title, content) {
-    // ... (idéntico a la versión anterior)
     dom.noteTitle.textContent = title;
     dom.noteContent.textContent = content;
     showModal(dom.noteReaderModal);
@@ -338,43 +420,35 @@ export function setPlayerName(name) {
     dom.playerStats.name.textContent = name;
     saveGame();
 }
+export function getPlayerName() { return GAME_STATE.playerName; }
 
-/** Obtiene el nombre del jugador */
-export function getPlayerName() {
-    return GAME_STATE.playerName;
-}
-
-/** Establece el número de la noche (NUEVO) */
+/** Establece el número de la noche */
 export function setNightNumber(num) {
     GAME_STATE.currentNight = num;
     saveGame();
 }
+export function getNightNumber() { return GAME_STATE.currentNight; }
+export function isNewPlayer() { return !GAME_STATE.flags.isNewPlayer || GAME_STATE.playerName === "Tú"; }
 
-/** Obtiene el número de la noche */
-export function getNightNumber() {
-    return GAME_STATE.currentNight;
-}
-
-/** Comprueba si es un jugador nuevo */
-export function isNewPlayer() {
-    return !GAME_STATE.flags.isNewPlayer || GAME_STATE.playerName === "Tú";
-}
-
-/** Establece la ubicación actual (NUEVO) */
+/** Establece la ubicación actual */
 export function setLocation(locationName) {
     GAME_STATE.currentLocation = locationName;
     dom.locationBar.textContent = locationName;
     saveGame();
 }
 
-/**
- * Actualiza una estadística del jugador.
- * @param {'health' | 'hunger' | 'thirst' | 'fear'} stat - La estadística a cambiar.
- * @param {number} value - El valor.
- * @param {boolean} [isAbsolute=false] - Si es true, ESTABLECE el valor. Si es false, AÑADE el valor.
- */
+/** Establece/obtiene una flag de la historia */
+export function setFlag(flagName, value) {
+    GAME_STATE.flags[flagName] = value;
+    saveGame();
+}
+export function getFlag(flagName) {
+    return GAME_STATE.flags[flagName];
+}
+
+
+/** Actualiza una estadística del jugador. */
 export function updatePlayerState(stat, value, isAbsolute = false) {
-    // ... (idéntico a la versión anterior)
     let base = isAbsolute ? 0 : GAME_STATE.player[stat];
     GAME_STATE.player[stat] = Math.max(0, Math.min(100, base + value));
     
@@ -392,7 +466,6 @@ export function updatePlayerState(stat, value, isAbsolute = false) {
 
 /** Actualiza una estadística de Rulo */
 export function updateRuloState(stat, value, isAbsolute = false) {
-    // ... (idéntico a la versión anterior)
     if (typeof value === 'boolean') {
         GAME_STATE.rulo[stat] = value;
     } else {
@@ -401,7 +474,8 @@ export function updateRuloState(stat, value, isAbsolute = false) {
     }
     
     const val = GAME_STATE.rulo[stat];
-    if (stat === 'energy' || stat === 'health' || stat === 'hunger' || stat === 'thirst') {
+    // Actualiza la UI correspondiente
+    if (stat === 'energy' || stat === 'health' || stat === 'hunger' || stat === 'thirst' || stat === 'fear') {
         dom.ruloStats[stat].textContent = `${val}/100`;
         dom.ruloStats[`${stat}Bar`].style.width = `${val}%`;
     }
@@ -412,22 +486,36 @@ export function updateRuloState(stat, value, isAbsolute = false) {
 /** Muestra las estadísticas de Rulo en la UI */
 export function showRuloStats() {
     dom.ruloStatusBtn.classList.remove('hidden');
-    dom.ruloStats.display.classList.remove('hidden');
 }
 
 /** Añade un item al inventario y guarda */
 export function addItem(tab, item) {
-    // ... (idéntico a la versión anterior)
-    GAME_STATE.inventory[tab].push(item);
+    // Manejar stacks
+    const existingItem = GAME_STATE.inventory[tab].find(i => i.id === item.id);
+    if (existingItem && item.stack) {
+        existingItem.stack += item.stack;
+    } else {
+        GAME_STATE.inventory[tab].push(item);
+    }
+    
     addNotification(`Objeto añadido: ${item.name}`, 'item');
     renderInventory();
     saveGame();
 }
 
-/** Elimina un item del inventario y guarda */
-export function removeItem(tab, itemId) {
-    // ... (idéntico a la versión anterior)
-    GAME_STATE.inventory[tab] = GAME_STATE.inventory[tab].filter(i => i.id !== itemId);
+/** Elimina un item del inventario y guarda (ACTUALIZADO para stacks) */
+export function removeItem(tab, itemId, quantity = 1) {
+    const itemIndex = GAME_STATE.inventory[tab].findIndex(i => i.id === itemId);
+    if (itemIndex === -1) return; // No se encontró el item
+
+    const item = GAME_STATE.inventory[tab][itemIndex];
+
+    if (item.stack && item.stack > quantity) {
+        item.stack -= quantity; // Reduce el stack
+    } else {
+        GAME_STATE.inventory[tab].splice(itemIndex, 1); // Elimina el item
+    }
+    
     renderInventory();
     saveGame();
 }
@@ -446,7 +534,14 @@ function saveGame() {
 function loadGame() {
     const savedData = localStorage.getItem(SAVE_KEY);
     if (savedData) {
-        GAME_STATE = JSON.parse(savedData);
+        const parsedData = JSON.parse(savedData);
+        // Fusionar datos guardados para no perder nuevos estados
+        GAME_STATE = { ...GAME_STATE, ...parsedData };
+        // Asegurarse de que los sub-objetos también se fusionen
+        GAME_STATE.player = { ...GAME_STATE.player, ...parsedData.player };
+        GAME_STATE.rulo = { ...GAME_STATE.rulo, ...parsedData.rulo };
+        GAME_STATE.inventory = { ...GAME_STATE.inventory, ...parsedData.inventory };
+        GAME_STATE.flags = { ...GAME_STATE.flags, ...parsedData.flags };
     }
 }
 
@@ -460,13 +555,15 @@ function updateAllUI() {
 
     // Ocultar Rulo por defecto
     dom.ruloStatusBtn.classList.add('hidden');
-    dom.ruloStats.display.classList.add('hidden');
+    // dom.ruloStats.display.classList.add('hidden'); // No ocultar el display, solo el botón
+    
     // Mostrar Rulo si es relevante
-    if (GAME_STATE.rulo.health < 100 || GAME_STATE.rulo.hasFlashlight) {
+    if (GAME_STATE.rulo.health < 100 || GAME_STATE.rulo.hasFlashlight || GAME_STATE.currentNight > 0) {
         showRuloStats();
         updateRuloState('health', 0);
         updateRuloState('hunger', 0);
         updateRuloState('thirst', 0);
+        updateRuloState('fear', 0);
         updateRuloState('energy', 0);
     }
     
@@ -486,7 +583,6 @@ function hideModal(modalElement) {
 }
 
 function applyTheme(themeName) {
-    // ... (idéntico a la versión anterior)
     document.body.dataset.theme = themeName;
     const palette = THEME_PALETTES[themeName];
     const root = document.documentElement;
@@ -498,7 +594,6 @@ function applyTheme(themeName) {
 }
 
 function updateCondition(character) {
-    // ... (idéntico a la versión anterior)
     const state = GAME_STATE[character];
     const ui = (character === 'player') ? dom.playerStats : dom.ruloStats;
     let condition = "Estable";
@@ -518,19 +613,32 @@ function updateCondition(character) {
     ui.condition.className = cssClass;
 }
 
+/** Dibuja los items en el inventario y AÑADE LISTENERS */
 function renderInventory() {
-    // ... (idéntico a la versión anterior)
     dom.tabs.consumables.innerHTML = '';
     dom.tabs.keyItems.innerHTML = '';
     dom.tabs.notes.innerHTML = '';
     dom.tabs.minigames.innerHTML = '';
 
+    // Consumibles
     GAME_STATE.inventory.consumables.forEach(item => {
-        dom.tabs.consumables.innerHTML += `<div class="inventory-item"><span>${item.name} (x${item.stack || 1})</span><button class="ui-btn">Usar</button></div>`;
+        const div = document.createElement('div');
+        div.className = 'inventory-item';
+        div.innerHTML = `<span>${item.name} (x${item.stack || 1})</span>`;
+        const useBtn = document.createElement('button');
+        useBtn.className = 'ui-btn';
+        useBtn.textContent = 'Usar';
+        useBtn.onclick = () => useItem(item); // <-- Lógica de "Usar"
+        div.appendChild(useBtn);
+        dom.tabs.consumables.appendChild(div);
     });
+    
+    // Items Clave
     GAME_STATE.inventory.keyItems.forEach(item => {
         dom.tabs.keyItems.innerHTML += `<div class="inventory-item"><span>${item.name}</span></div>`;
     });
+    
+    // Notas
     GAME_STATE.inventory.notes.forEach(note => {
         const div = document.createElement('div');
         div.className = 'inventory-item note-item';
@@ -538,7 +646,208 @@ function renderInventory() {
         div.onclick = () => showNoteReader(note.name, note.content);
         dom.tabs.notes.appendChild(div);
     });
+    
+    // Minijuegos
     GAME_STATE.inventory.minigames.forEach(item => {
-        dom.tabs.minigames.innerHTML += `<div class="inventory-item"><span>${item.name}</span></div>`;
+        const div = document.createElement('div');
+        div.className = 'inventory-item';
+        div.innerHTML = `<span>${item.name}</span>`;
+        const playBtn = document.createElement('button');
+        playBtn.className = 'ui-btn';
+        playBtn.textContent = 'Usar';
+        playBtn.onclick = () => startMinigame(item); // <-- Lógica de "Minijuego"
+        div.appendChild(playBtn);
+        dom.tabs.minigames.appendChild(div);
     });
+}
+
+// --- LÓGICA DE ITEMS Y MINIJUEGOS (NUEVO) ---
+
+/** Lógica central para USAR un item */
+function useItem(item) {
+    hideModal(dom.inventoryModal); // Ocultar inventario
+
+    switch(item.id) {
+        case 'battery_spent':
+            if (GAME_STATE.rulo.hasFlashlight) {
+                updateRuloState('energy', item.restore || 20);
+                addNotification(`Recargaste la linterna. (+${item.restore || 20} Energía)`, 'item');
+                removeItem('consumables', item.id, 1);
+            } else {
+                addNotification("No tienes una linterna activa para recargar.");
+            }
+            break;
+        
+        case 'water':
+            addNotification("Bebes un poco de agua.", 'item');
+            applyConsumableEffect('thirst', item.restore || 30, 'player');
+            removeItem('consumables', item.id, 1);
+            break;
+            
+        case 'cereal':
+            addNotification("Comes la barra de cereal rancia.", 'item');
+            applyConsumableEffect('hunger', item.restore || 20, 'player');
+            removeItem('consumables', item.id, 1);
+            break;
+            
+        case 'pills':
+            addNotification("Tomas las píldoras... te sientes más calmado, pero mareado.", 'item');
+            updatePlayerState('fear', item.restore || -30); // Instantáneo
+            removeItem('consumables', item.id, 1);
+            break;
+            
+        case 'bandage':
+            addNotification("Te aplicas la venda sucia.", 'item');
+            updatePlayerState('health', item.restore || 10); // Instantáneo
+            removeItem('consumables', item.id, 1);
+            break;
+            
+        default:
+            addNotification("No puedes usar esto ahora.");
+    }
+}
+
+/** Aplica un efecto de consumible LENTAMENTE en el tiempo */
+function applyConsumableEffect(stat, totalRestore, target = 'player') {
+    let tickRate = 2000; // 2 segundos
+    let restorePerTick = 2;
+    
+    // Ajustar según la dificultad
+    switch(GAME_STATE.difficulty) {
+        case 'easy':
+            tickRate = 1500;
+            restorePerTick = 3;
+            break;
+        case 'hard':
+            tickRate = 3000;
+            restorePerTick = 1;
+            break;
+        case 'nightmare':
+            tickRate = 4000;
+            restorePerTick = 1;
+            totalRestore *= 0.75; // Menos efectivo
+            break;
+    }
+    
+    let restoredAmount = 0;
+    
+    const interval = setInterval(() => {
+        if (restoredAmount >= totalRestore) {
+            clearInterval(interval);
+            return;
+        }
+        
+        const amount = Math.min(restorePerTick, totalRestore - restoredAmount);
+        if (target === 'player') {
+            updatePlayerState(stat, amount);
+        } else {
+            updateRuloState(stat, amount);
+        }
+        restoredAmount += amount;
+        
+    }, tickRate);
+}
+
+/** Comprueba si el jugador tiene un item (por id) */
+function playerHasItem(itemId) {
+    return GAME_STATE.inventory.consumables.some(i => i.id === itemId);
+}
+
+/** Reproduce un sonido (y lo detiene opcionalmente) */
+export function playAudio(audioId, durationInSeconds = 0) {
+    const audio = audioCache[audioId];
+    if (audio) {
+        audio.currentTime = 0;
+        audio.play().catch(e => console.warn("Error al reproducir audio:", e));
+        
+        if (durationInSeconds > 0) {
+            setTimeout(() => {
+                audio.pause();
+            }, durationInSeconds * 1000);
+        }
+    } else {
+        console.error(`Audio no encontrado en cache: ${audioId}`);
+    }
+}
+
+/** Inicia la lógica de un minijuego */
+function startMinigame(item) {
+    if (item.id === 'tranqui_oso') {
+        if (GAME_STATE.player.fear < 60) {
+            hideModal(dom.inventoryModal);
+            addNotification("No sientes la necesidad de usarlo ahora. Tu miedo no es tan alto.");
+            return;
+        }
+        // Iniciar minijuego
+        startBreathingMinigame();
+    }
+}
+
+/** Lógica del Minijuego de Respiración */
+function startBreathingMinigame() {
+    hideModal(dom.inventoryModal);
+    showModal(dom.minigameModal);
+    
+    minigame = {
+        isActive: true,
+        breaths: 0,
+        isHolding: false
+    };
+    
+    dom.breathCount.textContent = "0";
+    dom.breathingCircle.style.animation = 'none'; // Reset anim
+    void dom.breathingCircle.offsetWidth; // Trigger reflow
+    dom.breathingCircle.style.animation = 'breath 8s ease-in-out infinite';
+
+    dom.minigameInstructions.textContent = "Mantén presionado para INHALAR... Suelta para EXHALAR.";
+
+    // Listeners
+    dom.breathingCircle.onmousedown = () => { minigame.isHolding = true; };
+    document.onmouseup = () => { minigame.isHolding = false; };
+    
+    // El "éxito" se basa en si mantienes presionado durante la inhalación
+    // (mitad de la animación) y sueltas durante la exhalación (otra mitad)
+    // Esta es una simulación simplificada
+    
+    // Simulación simple: Clic en el momento correcto
+    dom.breathingCircle.onclick = () => {
+        if (!minigame.isActive) return;
+        
+        // Comprobar el estado de la animación (simplificado)
+        // Pedimos 3 "clics" exitosos
+        minigame.breaths++;
+        dom.breathCount.textContent = minigame.breaths;
+        
+        if (minigame.breaths >= 3) {
+            endBreathingMinigame(true); // Éxito
+        }
+    };
+    
+    // Timeout por si el jugador no hace nada
+    setTimeout(() => {
+        if (minigame.isActive && minigame.breaths < 3) {
+            endBreathingMinigame(false); // Fracaso
+        }
+    }, 15000); // 15 segundos para completarlo
+}
+
+function endBreathingMinigame(success) {
+    if (!minigame.isActive) return;
+    
+    minigame.isActive = false;
+    hideModal(dom.minigameModal);
+    
+    // Limpiar listeners
+    dom.breathingCircle.onmousedown = null;
+    document.onmouseup = null;
+    dom.breathingCircle.onclick = null;
+    
+    if (success) {
+        addNotification("Respiras profundamente... El pánico retrocede.", "item");
+        updatePlayerState('fear', -20);
+    } else {
+        addNotification("¡No puedes! ¡No puedes calmarte! El oso emite una leve estática...", "danger");
+        updatePlayerState('fear', 10);
+        playAudio('estatica', 3); // Reproduce 3s de estática
+    }
 }
