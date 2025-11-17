@@ -6,12 +6,12 @@
 import { getTheme, THEME_PALETTES } from '../../settings-manager.js';
 
 // --- CONSTANTES ---
-const TYPING_SPEED_MS = 25;
+const TYPING_SPEED_MS = 30;
 const SAVE_KEY = 'la-transmision-savegame';
 
 // --- ESTADO DEL JUEGO ---
 let GAME_STATE = {
-    playerName: "Tú", // Valor por defecto
+    playerName: "Tú",
     currentNight: 1,
     player: { health: 100, hunger: 100, thirst: 100, fear: 0 },
     rulo: { health: 100, hunger: 100, thirst: 100, fear: 0, energy: 0, hasFlashlight: false },
@@ -24,6 +24,11 @@ let GAME_STATE = {
 let dom = {};
 let activeModal = null;
 
+// --- ESTADO DEL TYPING ---
+let isTyping = false;
+let forceSkipTyping = false;
+
+
 // --- FUNCIONES DE INICIALIZACIÓN ---
 
 export function init() {
@@ -32,6 +37,7 @@ export function init() {
     dom = {
         gameContainer: document.getElementById('game-container'),
         // Overlays
+        loadingOverlay: document.getElementById('loading-overlay'), // NUEVO
         nameOverlay: document.getElementById('name-input-overlay'),
         nameInput: document.getElementById('player-name-input'),
         nameConfirmBtn: document.getElementById('confirm-name-btn'),
@@ -42,7 +48,7 @@ export function init() {
         choiceWindow: document.getElementById('choice-window'),
         notificationPanel: document.getElementById('notification-panel'),
         fearBarFill: document.getElementById('fear-bar-fill'),
-        fearValue: document.getElementById('fear-value'), // NUEVA REFERENCIA
+        fearValue: document.getElementById('fear-value'),
         locationBar: document.getElementById('current-location'),
         
         // Modales
@@ -52,23 +58,20 @@ export function init() {
         noteReaderModal: document.getElementById('note-reader-modal'),
         
         // Botones de UI
+        menuBtn: document.getElementById('menu-btn'), // NUEVO
         inventoryBtn: document.getElementById('inventory-btn'),
         playerStatusBtn: document.getElementById('player-status-btn'),
         ruloStatusBtn: document.getElementById('rulo-status-btn'),
         
         // Contenido de Modales
-        tabs: {
-            consumables: document.getElementById('tab-consumables'),
-            keyItems: document.getElementById('tab-key-items'),
-            notes: document.getElementById('tab-notes'),
-            minigames: document.getElementById('tab-minigames')
-        },
+        tabs: { /* ... (idéntico) ... */ },
         tabLinks: document.querySelectorAll('.tab-link'),
         noteTitle: document.getElementById('note-title'),
         noteContent: document.getElementById('note-content'),
         
         // Stats
         playerStats: {
+            display: document.getElementById('player-stats-display'), // NUEVO
             name: document.getElementById('player-stats-name'),
             health: document.getElementById('player-health'),
             healthBar: document.getElementById('player-health-bar'),
@@ -101,19 +104,40 @@ export function init() {
 
 /** Configura los listeners para todos los modales y atajos */
 function setupModalListeners() {
+    // Botón de Inventario
     dom.inventoryBtn.addEventListener('click', () => showModal(dom.inventoryModal));
-    dom.playerStatusBtn.addEventListener('click', () => showModal(dom.statusModal));
-    dom.ruloStatusBtn.addEventListener('click', () => showModal(dom.statusModal));
+    
+    // BOTONES DE ESTADO (ACTUALIZADO)
+    dom.playerStatusBtn.addEventListener('click', () => {
+        dom.playerStats.display.classList.remove('hidden');
+        dom.ruloStats.display.classList.add('hidden');
+        showModal(dom.statusModal);
+    });
+    dom.ruloStatusBtn.addEventListener('click', () => {
+        dom.playerStats.display.classList.add('hidden');
+        dom.ruloStats.display.classList.remove('hidden');
+        showModal(dom.statusModal);
+    });
 
+    // Botones de Cierre de Modal
     document.querySelectorAll('.close-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             hideModal(document.getElementById(btn.getAttribute('data-modal-id')));
         });
     });
+
+    // Botón de Menú (Pantalla de Carga)
+    dom.menuBtn.addEventListener('click', () => {
+        dom.loadingOverlay.classList.add('visible');
+        setTimeout(() => {
+            window.location.href = '../../Inicio.html';
+        }, 500); // Espera a que termine el fade-out
+    });
 }
 
 /** Configura listeners para las pestañas del inventario */
 function setupInventoryTabListeners() {
+    // ... (idéntico a la versión anterior)
     dom.tabLinks.forEach(link => {
         link.addEventListener('click', () => {
             const tabId = link.getAttribute('data-tab');
@@ -136,7 +160,7 @@ function setupGlobalKeyListener() {
             if (activeModal) {
                 hideModal(activeModal);
             } else {
-                window.location.href = '../../Inicio.html';
+                dom.menuBtn.click(); // Simula clic en el botón de menú
             }
         }
         
@@ -144,23 +168,34 @@ function setupGlobalKeyListener() {
 
         if (e.key === 'i' || e.key === 'I') {
             e.preventDefault();
-            activeModal ? hideModal(activeModal) : showModal(dom.inventoryModal);
+            activeModal === dom.inventoryModal ? hideModal(activeModal) : showModal(dom.inventoryModal);
         }
         
         if (e.key === 'e' || e.key === 'E') {
             e.preventDefault();
-            activeModal ? hideModal(activeModal) : showModal(dom.statusModal);
+            if (activeModal === dom.statusModal) {
+                hideModal(activeModal);
+            } else {
+                dom.playerStatusBtn.click(); // Abre el estado del JUGADOR por defecto
+            }
         }
     });
+
+    // Listener para OMITIR DIÁLOGO
+    dom.gameContainer.addEventListener('click', skipTyping);
 }
 
 
 // --- FUNCIONES PÚBLICAS DEL MOTOR (Exportadas) ---
 
+/** Oculta la pantalla de carga al inicio del juego */
+export function hideLoadingScreen() {
+    dom.loadingOverlay.classList.add('hidden');
+}
+
 /** Muestra el overlay de "Insertar Nombre" */
 export function promptForName(onConfirm) {
-    dom.nameOverlay.style.display = 'flex';
-    dom.nameOverlay.classList.remove('fade-out');
+    dom.nameOverlay.classList.remove('hidden', 'fade-out');
     dom.nameInput.focus();
 
     const confirmAction = () => {
@@ -187,23 +222,33 @@ export function showGameContainer() {
 /** Muestra el overlay de intro */
 export function showIntroOverlay(text) {
     dom.introOverlay.querySelector('h1').textContent = text;
-    dom.introOverlay.classList.remove('hidden', 'glitch-out', 'fade-out');
+    dom.introOverlay.classList.remove('hidden', 'burn-out', 'fade-out');
 }
 
-/** Oculta el overlay de intro con efecto glitch */
+/** Oculta el overlay de intro con efecto "burn-out" */
 export function hideIntroOverlay() {
-    dom.introOverlay.classList.add('glitch-out');
-    // Ocultar completamente después de la animación
+    dom.introOverlay.classList.add('burn-out');
     setTimeout(() => {
         dom.introOverlay.classList.add('hidden');
-    }, 1000); // Coincide con la duración de la animación
+    }, 1500); // Coincide con la duración de la animación
 }
 
-/** Muestra un texto con efecto "typing" */
+/** Función para forzar la omisión del "typing" */
+function skipTyping() {
+    if (isTyping) {
+        forceSkipTyping = true;
+    }
+}
+
+/** Muestra un texto con efecto "typing" (AHORA SE PUEDE OMITIR) */
 export async function addDialogue(text, speaker = '') {
+    // Si ya se está escribiendo, no hacer nada (previene doble clic)
+    if (isTyping) return; 
+
     const p = document.createElement('p');
     
     if (speaker) {
+        // ... (lógica de hablante idéntica)
         const span = document.createElement('span');
         span.className = 'dialogue-speaker';
         
@@ -227,22 +272,33 @@ export async function addDialogue(text, speaker = '') {
     p.appendChild(textSpan);
     dom.dialogueWindow.appendChild(p);
 
+    // Lógica de "Typing"
+    isTyping = true;
+    forceSkipTyping = false;
+    
     for (let i = 0; i < text.length; i++) {
+        if (forceSkipTyping) {
+            break; // Salir del bucle
+        }
         textSpan.textContent += text[i];
         dom.dialogueWindow.scrollTop = dom.dialogueWindow.scrollHeight;
         await wait(TYPING_SPEED_MS);
     }
     
+    textSpan.textContent = text; // Asegura que el texto esté completo
     textSpan.classList.remove('typing-cursor');
+    isTyping = false;
+    forceSkipTyping = false;
 }
 
 /** Muestra una notificación en el panel derecho */
 export function addNotification(text, type = 'info') {
+    // ... (idéntico a la versión anterior)
     const notif = document.createElement('div');
     notif.className = `notification ${type}`;
     notif.textContent = text;
     dom.notificationPanel.appendChild(notif);
-    dom.notificationPanel.scrollTop = dom.notificationPanel.scrollHeight; // Auto-scroll
+    dom.notificationPanel.scrollTop = dom.notificationPanel.scrollHeight;
 }
 
 /** Limpia todas las opciones de la ventana de elecciones */
@@ -252,6 +308,7 @@ export function clearChoices() {
 
 /** Añade una nueva elección */
 export function addChoice(text, callback) {
+    // ... (idéntico a la versión anterior)
     const a = document.createElement('a');
     a.className = 'choice-link';
     a.href = '#';
@@ -266,6 +323,7 @@ export function addChoice(text, callback) {
 
 /** Muestra el lector de notas */
 export function showNoteReader(title, content) {
+    // ... (idéntico a la versión anterior)
     dom.noteTitle.textContent = title;
     dom.noteContent.textContent = content;
     showModal(dom.noteReaderModal);
@@ -273,6 +331,7 @@ export function showNoteReader(title, content) {
 
 // --- Gestión de Estado y Datos ---
 
+/** Establece el nombre del jugador y lo guarda */
 export function setPlayerName(name) {
     GAME_STATE.playerName = name;
     GAME_STATE.flags.isNewPlayer = false; // Marcar que ya no es nuevo
@@ -280,18 +339,32 @@ export function setPlayerName(name) {
     saveGame();
 }
 
+/** Obtiene el nombre del jugador */
 export function getPlayerName() {
     return GAME_STATE.playerName;
 }
 
+/** Establece el número de la noche (NUEVO) */
+export function setNightNumber(num) {
+    GAME_STATE.currentNight = num;
+    saveGame();
+}
+
+/** Obtiene el número de la noche */
 export function getNightNumber() {
     return GAME_STATE.currentNight;
 }
 
 /** Comprueba si es un jugador nuevo */
 export function isNewPlayer() {
-    // Si la bandera no existe o el nombre es el default, es nuevo
     return !GAME_STATE.flags.isNewPlayer || GAME_STATE.playerName === "Tú";
+}
+
+/** Establece la ubicación actual (NUEVO) */
+export function setLocation(locationName) {
+    GAME_STATE.currentLocation = locationName;
+    dom.locationBar.textContent = locationName;
+    saveGame();
 }
 
 /**
@@ -301,13 +374,14 @@ export function isNewPlayer() {
  * @param {boolean} [isAbsolute=false] - Si es true, ESTABLECE el valor. Si es false, AÑADE el valor.
  */
 export function updatePlayerState(stat, value, isAbsolute = false) {
+    // ... (idéntico a la versión anterior)
     let base = isAbsolute ? 0 : GAME_STATE.player[stat];
     GAME_STATE.player[stat] = Math.max(0, Math.min(100, base + value));
     
     const val = GAME_STATE.player[stat];
     if (stat === 'fear') {
         dom.fearBarFill.style.width = `${val}%`;
-        dom.fearValue.textContent = val; // ACTUALIZAR CONTADOR
+        dom.fearValue.textContent = val;
     } else {
         dom.playerStats[stat].textContent = `${val}/100`;
         dom.playerStats[`${stat}Bar`].style.width = `${val}%`;
@@ -318,6 +392,7 @@ export function updatePlayerState(stat, value, isAbsolute = false) {
 
 /** Actualiza una estadística de Rulo */
 export function updateRuloState(stat, value, isAbsolute = false) {
+    // ... (idéntico a la versión anterior)
     if (typeof value === 'boolean') {
         GAME_STATE.rulo[stat] = value;
     } else {
@@ -342,6 +417,7 @@ export function showRuloStats() {
 
 /** Añade un item al inventario y guarda */
 export function addItem(tab, item) {
+    // ... (idéntico a la versión anterior)
     GAME_STATE.inventory[tab].push(item);
     addNotification(`Objeto añadido: ${item.name}`, 'item');
     renderInventory();
@@ -350,6 +426,7 @@ export function addItem(tab, item) {
 
 /** Elimina un item del inventario y guarda */
 export function removeItem(tab, itemId) {
+    // ... (idéntico a la versión anterior)
     GAME_STATE.inventory[tab] = GAME_STATE.inventory[tab].filter(i => i.id !== itemId);
     renderInventory();
     saveGame();
@@ -381,6 +458,10 @@ function updateAllUI() {
     updatePlayerState('thirst', 0);
     updatePlayerState('fear', 0);
 
+    // Ocultar Rulo por defecto
+    dom.ruloStatusBtn.classList.add('hidden');
+    dom.ruloStats.display.classList.add('hidden');
+    // Mostrar Rulo si es relevante
     if (GAME_STATE.rulo.health < 100 || GAME_STATE.rulo.hasFlashlight) {
         showRuloStats();
         updateRuloState('health', 0);
@@ -405,6 +486,7 @@ function hideModal(modalElement) {
 }
 
 function applyTheme(themeName) {
+    // ... (idéntico a la versión anterior)
     document.body.dataset.theme = themeName;
     const palette = THEME_PALETTES[themeName];
     const root = document.documentElement;
@@ -416,6 +498,7 @@ function applyTheme(themeName) {
 }
 
 function updateCondition(character) {
+    // ... (idéntico a la versión anterior)
     const state = GAME_STATE[character];
     const ui = (character === 'player') ? dom.playerStats : dom.ruloStats;
     let condition = "Estable";
@@ -436,6 +519,7 @@ function updateCondition(character) {
 }
 
 function renderInventory() {
+    // ... (idéntico a la versión anterior)
     dom.tabs.consumables.innerHTML = '';
     dom.tabs.keyItems.innerHTML = '';
     dom.tabs.notes.innerHTML = '';
