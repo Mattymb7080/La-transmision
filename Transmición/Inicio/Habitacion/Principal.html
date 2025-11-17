@@ -49,7 +49,7 @@
             <div id="fear-meter-container">
                 <span>MIEDO</span>
                 <div class="progress-bar-container fear-bar">
-                    <div class="progress-bar-fill" id="fear-bar-fill"></div>
+                    <div class="progress-bar-fill fear" id="fear-bar-fill"></div>
                 </div>
                 <span id="fear-value">0</span>
             </div>
@@ -92,7 +92,7 @@
             </div>
         </div>
     </div>
-
+    
     <div id="status-modal" class="modal hidden">
         <div class="modal-content">
             <div class="modal-header">
@@ -138,6 +138,11 @@
                         <span id="rulo-thirst">100/100</span>
                     </div>
                     <div class="stat-row">
+                        <span>MIEDO</span>
+                        <div class="progress-bar-container"><div class="progress-bar-fill fear" id="rulo-fear-bar"></div></div>
+                        <span id="rulo-fear">0/100</span>
+                    </div>
+                    <div class="stat-row">
                         <span>ENERGÍA (LINTERNA)</span>
                         <div class="progress-bar-container"><div class="progress-bar-fill energy" id="rulo-energy-bar"></div></div>
                         <span id="rulo-energy">0/100</span>
@@ -147,7 +152,21 @@
             </div>
         </div>
     </div>
-    
+
+    <div id="minigame-modal" class="modal hidden">
+        <div class="modal-content" style="width: 400px; text-align: center;">
+            <div class="modal-header">
+                <h2>Respiración Controlada</h2>
+            </div>
+            <div class="modal-body">
+                <div id="breathing-circle"></div>
+                <p id="minigame-instructions">
+                    Mantén presionado para INHALAR... Suelta para EXHALAR.
+                </p>
+                <p>Completadas: <span id="breath-count">0</span> / 3</p>
+            </div>
+        </div>
+    </div>
     <script src="Motor.js" type="module"></script>
     <script src="Noche1.js" type="module"></script>
 </body>
