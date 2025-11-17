@@ -12,7 +12,7 @@
     --hunger-color: #f97316;
     --thirst-color: #0ea5e9;
     --energy-color: #fde047;
-    --fear-color: #ef4444;
+    --fear-color: #ef4444; /* Rojo para miedo */
 
     /* Colores de condición */
     --condition-stable: #22c55e;
@@ -68,12 +68,16 @@ body, html {
     animation: fadeIn 1s 0.5s ease-in forwards;
 }
 
-/* Pantalla de carga (NUEVO) */
+/* Pantalla de carga */
 #loading-overlay {
     opacity: 1;
     z-index: 10000;
     transition: opacity 0.5s ease-out;
-    pointer-events: none;
+    pointer-events: all; /* Por defecto puede recibir clics (bloquea) */
+}
+#loading-overlay.hidden {
+    opacity: 0;
+    pointer-events: none; /* Cuando está oculta, no bloquea */
 }
 #loading-overlay.visible { /* Para el fade-out al salir */
     opacity: 1;
@@ -148,23 +152,23 @@ body, html {
     overflow: hidden;
 }
 
-/* FIX DE LAYOUT: Diálogo y Elecciones */
+/* LAYOUT: Diálogo y Elecciones (Esto ya es correcto) */
 #main-content {
     display: flex;
     flex-direction: column;
-    height: 100%; /* Asegura que ocupe toda la altura */
+    height: 100%; 
     border-right: 2px solid var(--primary-color);
 }
 #dialogue-window {
     flex-grow: 1; /* Ocupa todo el espacio disponible */
     padding: 15px;
-    overflow-y: auto;
+    overflow-y: auto; /* PERMITE EL SCROLL */
     border-bottom: 2px dashed var(--primary-color);
 }
 #dialogue-window p {
     margin: 0 0 15px 0;
     line-height: 1.4;
-    max-width: 70%;
+    max-width: 70%; /* Estético, para que no ocupe toda la línea */
 }
 .dialogue-speaker {
     display: block;
@@ -207,7 +211,7 @@ body, html {
 /* Notificaciones (Historial) */
 #notification-panel {
     padding: 10px;
-    overflow-y: auto; /* Scroll si se llena */
+    overflow-y: auto; /* PERMITE EL SCROLL */
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -254,7 +258,7 @@ body, html {
     width: 200px;
     border-color: var(--fear-color);
 }
-#fear-meter-container .progress-bar-fill {
+#fear-meter-container .progress-bar-fill.fear {
     background-color: var(--fear-color);
 }
 #fear-value {
@@ -393,3 +397,64 @@ body, html {
 .progress-bar-fill.hunger { background-color: var(--hunger-color); }
 .progress-bar-fill.thirst { background-color: var(--thirst-color); }
 .progress-bar-fill.energy { background-color: var(--energy-color); }
+.progress-bar-fill.fear { background-color: var(--fear-color); } /* NUEVO */
+
+
+/* --- NUEVO: ESTILOS MINIJUEGO TRANQUI-OSO --- */
+#breathing-circle {
+    width: 150px;
+    height: 150px;
+    border: 3px solid var(--primary-color);
+    border-radius: 50%;
+    margin: 20px auto;
+    box-shadow: 0 0 15px var(--primary-color);
+    animation: breath 8s ease-in-out infinite;
+}
+
+#minigame-instructions {
+    opacity: 0.7;
+    font-style: italic;
+}
+
+/* Animación de respiración */
+@keyframes breath {
+    0% {
+        transform: scale(0.8);
+        opacity: 0.7;
+    }
+    50% { /* Inhalar (4s) */
+        transform: scale(1.2);
+        opacity: 1;
+    }
+    100% { /* Exhalar (4s) */
+        transform: scale(0.8);
+        opacity: 0.7;
+    }
+}
+
+/* --- NUEVO: ESTILOS DE SCROLLBAR --- */
+
+/* Scroll para Diálogo y Opciones (Estético) */
+#dialogue-window::-webkit-scrollbar,
+#choice-window::-webkit-scrollbar {
+    width: 8px;
+}
+#dialogue-window::-webkit-scrollbar-track,
+#choice-window::-webkit-scrollbar-track {
+    background: var(--background-secondary);
+}
+#dialogue-window::-webkit-scrollbar-thumb,
+#choice-window::-webkit-scrollbar-thumb {
+    background-color: var(--primary-color);
+    border: 2px solid var(--background-secondary);
+}
+#dialogue-window::-webkit-scrollbar-thumb:hover,
+#choice-window::-webkit-scrollbar-thumb:hover {
+    background-color: var(--hover-bg);
+}
+
+/* Scroll para Notificaciones (Invisible) */
+#notification-panel::-webkit-scrollbar {
+    width: 0px;
+    background: transparent; /* Opcional */
+}
