@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>La Transmisión - Noche 1</title>
+    <link href="https://fonts.googleapis.com/css2?family=VT323&display.swap" rel="stylesheet">
+    <link rel="stylesheet" href="Estilos-Juego.css">
+</head>
+<body data-theme="verde-crt">
+
+    <div id="name-input-overlay" class="overlay">
+        <div class="overlay-content">
+            <h1>Insertar Nombre</h1>
+            <input type="text" id="player-name-input" maxlength="20" placeholder="Escribe tu nombre...">
+            <button id="confirm-name-btn" class="ui-btn">Confirmar</button>
+        </div>
+    </div>
+
+    <div id="intro-overlay" class="overlay hidden">
+        <h1>Noche 1</h1>
+    </div>
+
+    <div id="game-container" class="hidden">
+        
+        <nav id="top-panel">
+            <a id="menu-btn" class="ui-btn" href="../../Inicio.html">☰</a>
+            <div class="status-indicators">
+                <button id="player-status-btn" class="ui-btn status-btn"><span id="player-condition" class="condition-stable">Estable</span></button>
+                <button id="rulo-status-btn" class="ui-btn status-btn hidden"><span id="rulo-condition" class="condition-stable">Estable</span></button>
+            </div>
+            <button id="inventory-btn" class="ui-btn">INVENTARIO (I)</button>
+        </nav>
+
+        <main id="middle-panel">
+            <div id="main-content">
+                <div id="dialogue-window">
+                    </div>
+                <div id="choice-window">
+                    </div>
+            </div>
+            <aside id="notification-panel">
+                </aside>
+        </main>
+
+        <footer id="bottom-panel">
+            <div id="fear-meter-container">
+                <span>MIEDO</span>
+                <div class="progress-bar-container fear-bar">
+                    <div class="progress-bar-fill" id="fear-bar-fill"></div>
+                </div>
+                <span id="fear-value">0</span>
+            </div>
+            <div id="location-bar">
+                UBICACIÓN: <span id="current-location">Habitación 1204</span>
+            </div>
+        </footer>
+
+    </div>
+
+    <div id="inventory-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>INVENTARIO</h2>
+                <button class="close-btn" data-modal-id="inventory-modal">X</button>
+            </div>
+            <div class="modal-body">
+                <div class="inventory-tabs">
+                    <button class="tab-link active" data-tab="tab-consumables">Consumibles</button>
+                    <button class="tab-link" data-tab="tab-key-items">Items Clave</button>
+                    <button class="tab-link" data-tab="tab-notes">Notas</button>
+                    <button class="tab-link" data-tab="tab-minigames">Minijuegos</button>
+                </div>
+                
+                <div id="tab-consumables" class="tab-content active"></div>
+                <div id="tab-key-items" class="tab-content"></div>
+                <div id="tab-notes" class="tab-content"></div>
+                <div id="tab-minigames" class="tab-content"></div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="note-reader-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="note-title"></h2>
+                <button class="close-btn" data-modal-id="note-reader-modal">X</button>
+            </div>
+            <div class="modal-body">
+                <p id="note-content"></p>
+            </div>
+        </div>
+    </div>
+
+    <div id="status-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>ESTADO DE PERSONAJES</h2>
+                <button class="close-btn" data-modal-id="status-modal">X</button>
+            </div>
+            <div class="modal-body">
+                <div id="player-stats-display">
+                    <h3 id="player-stats-name">TÚ</h3>
+                    <div class="stat-row">
+                        <span>SALUD</span>
+                        <div class="progress-bar-container"><div class="progress-bar-fill health" id="player-health-bar"></div></div>
+                        <span id="player-health">100/100</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>HAMBRE</span>
+                        <div class="progress-bar-container"><div class="progress-bar-fill hunger" id="player-hunger-bar"></div></div>
+                        <span id="player-hunger">100/100</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>SED</span>
+                        <div class="progress-bar-container"><div class="progress-bar-fill thirst" id="player-thirst-bar"></div></div>
+                        <span id="player-thirst">100/100</span>
+                    </div>
+                </div>
+                
+                <div id="rulo-stats-display" class="hidden" style="margin-top: 20px;">
+                    <h3>RULO</h3>
+                    <div class="stat-row">
+                        <span>SALUD</span>
+                        <div class="progress-bar-container"><div class="progress-bar-fill health" id="rulo-health-bar"></div></div>
+                        <span id="rulo-health">100/100</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>HAMBRE</span>
+                        <div class="progress-bar-container"><div class="progress-bar-fill hunger" id="rulo-hunger-bar"></div></div>
+                        <span id="rulo-hunger">100/100</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>SED</span>
+                        <div class="progress-bar-container"><div class="progress-bar-fill thirst" id="rulo-thirst-bar"></div></div>
+                        <span id="rulo-thirst">100/100</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>ENERGÍA (LINTERNA)</span>
+                        <div class="progress-bar-container"><div class="progress-bar-fill energy" id="rulo-energy-bar"></div></div>
+                        <span id="rulo-energy">0/100</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="Motor.js" type="module"></script>
+    <script src="Noche1.js" type="module"></script>
+</body>
+</html>
