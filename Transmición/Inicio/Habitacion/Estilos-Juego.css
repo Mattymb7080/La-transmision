@@ -67,16 +67,30 @@ body, html {
     opacity: 0;
     animation: fadeIn 1s 0.5s ease-in forwards;
 }
-/* Efecto de distorsión (NUEVO) */
-.overlay.glitch-out {
-    animation: glitch-out 1s ease-out forwards;
+
+/* Pantalla de carga (NUEVO) */
+#loading-overlay {
+    opacity: 1;
+    z-index: 10000;
+    transition: opacity 0.5s ease-out;
+    pointer-events: none;
 }
-@keyframes glitch-out {
-    0% { opacity: 1; filter: none; }
-    50% { opacity: 1; transform: skew(-5deg, 1deg); filter: blur(1px); }
-    70% { opacity: 0.8; transform: skew(5deg, -1deg); filter: blur(2px) saturate(2); }
-    90% { opacity: 0.2; transform: skew(0); filter: blur(5px); }
-    100% { opacity: 0; filter: blur(10px); }
+#loading-overlay.visible { /* Para el fade-out al salir */
+    opacity: 1;
+    pointer-events: all;
+    transition: opacity 0.5s ease-in;
+}
+
+/* Efecto de distorsión/quemado (ACTUALIZADO) */
+.overlay.burn-out {
+    animation: burn-out-effect 1.5s ease-out forwards;
+}
+@keyframes burn-out-effect {
+    0% { opacity: 1; filter: none; text-shadow: 0 0 5px #FFF; }
+    30% { opacity: 1; filter: blur(1px); transform: scale(1.01); text-shadow: 0 0 10px #FFF, 0 0 15px var(--danger-color); }
+    60% { opacity: 0.8; filter: blur(3px); transform: scale(1.02); text-shadow: 0 0 15px var(--danger-color), 0 0 20px var(--danger-color); }
+    90% { opacity: 0.1; filter: blur(10px); transform: scale(1.05); text-shadow: 0 0 20px var(--danger-color); }
+    100% { opacity: 0; filter: blur(15px); transform: scale(1.1); }
 }
 
 
@@ -138,7 +152,7 @@ body, html {
 #main-content {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    height: 100%; /* Asegura que ocupe toda la altura */
     border-right: 2px solid var(--primary-color);
 }
 #dialogue-window {
@@ -243,7 +257,6 @@ body, html {
 #fear-meter-container .progress-bar-fill {
     background-color: var(--fear-color);
 }
-/* Estilo del contador numérico de miedo */
 #fear-value {
     font-size: 1.5rem;
     width: 30px;
