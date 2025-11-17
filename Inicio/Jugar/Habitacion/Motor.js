@@ -9,9 +9,46 @@ import { getTheme, THEME_PALETTES, getDifficulty } from '../../settings-manager.
 // --- CONSTANTES ---
 const TYPING_SPEED_MS = 38;
 const SAVE_KEY = 'la-transmision-savegame';
-const GAME_LOOP_INTERVAL_MS = 10000; // Loop principal cada 5 segundos
-// NUEVO: Cooldown para diálogos de sistema
+// Cooldown para diálogos de sistema
 const SYSTEM_DIALOGUE_COOLDOWN_MS = 4500; 
+
+// --- CONFIGURACIÓN DEL JUEGO (FÁCIL DE PERSONALIZAR) ---
+const GAME_SETTINGS = {
+    // Intervalo (en milisegundos) en el que se drenan las estadísticas
+    // Más alto = más lento
+    DRAIN_INTERVAL_MS: 20000, // Antes 10000 (Ahora 20s)
+    
+    DRAIN_RATES: {
+        // La dificultad actual, se carga al inicio
+        difficulty: 'normal', 
+        
+        // Tasas de drenaje POR INTERVALO
+        'easy': {
+            energy: 1,      // Drenaje de linterna
+            fear_darkness: 0, // Aumento de miedo en oscuridad
+            hunger: 0,      // Drenaje de hambre
+            thirst: 1       // Drenaje de sed
+        },
+        'normal': {
+            energy: 2,
+            fear_darkness: 1,
+            hunger: 1,
+            thirst: 2
+        },
+        'hard': {
+            energy: 3,
+            fear_darkness: 2,
+            hunger: 2,
+            thirst: 3
+        },
+        'nightmare': {
+            energy: 4,
+            fear_darkness: 3,
+            hunger: 3,
+            thirst: 4
+        }
+    }
+};
 
 // --- ESTADO DEL JUEGO ---
 let GAME_STATE = {
@@ -36,25 +73,30 @@ let forceSkipTyping = false;
 // --- ESTADO DEL MINIJUEGO ---
 let minigame = {
     isActive: false,
+    phase: 'tutorial', // 'tutorial', 'inhale', 'hold', 'exhale', 'wait'
+    timer: 0,
     breaths: 0,
-    isHolding: false
+    failures: 0,
+    loop: null // Para guardar el setInterval/requestAnimationFrame
 };
 
 // --- CACHÉ DE AUDIO ---
 let audioCache = {
-    // ¡CORRECCIÓN DE RUTA! (Debe subir 2 niveles desde Habitacion/ para llegar a Transmicion/)
     estatica: new Audio('../../Assets/Audios/Estatica.mp3')
 };
 
+// --- RESOLVERS DE PROMESAS ---
+let itemUseResolvers = {}; // Para esperar a que se use un item
 
 // --- FUNCIONES DE INICIALIZACIÓN ---
 
 export function init() {
     loadGame();
-    loadDifficulty(); // Carga la dificultad
+    loadDifficulty(); // Carga la dificultad y la aplica a GAME_SETTINGS
 
     dom = {
         gameContainer: document.getElementById('game-container'),
+        vignetteOverlay: document.getElementById('vignette-overlay'), // Para el miedo
         // Overlays
         loadingOverlay: document.getElementById('loading-overlay'),
         nameOverlay: document.getElementById('name-input-overlay'),
@@ -95,9 +137,14 @@ export function init() {
         noteContent: document.getElementById('note-content'),
         
         // Contenido Minijuego
+        minigameContent: document.getElementById('minigame-content'),
+        minigameTutorial: document.getElementById('minigame-tutorial'),
+        minigameStartBtn: document.getElementById('minigame-start-btn'),
         breathingCircle: document.getElementById('breathing-circle'),
         breathCount: document.getElementById('breath-count'),
+        breathFails: document.getElementById('breath-fails'),
         minigameInstructions: document.getElementById('minigame-instructions'),
+        minigameTimer: document.getElementById('minigame-timer'),
 
         // Stats
         playerStats: {
@@ -109,7 +156,8 @@ export function init() {
             hungerBar: document.getElementById('player-hunger-bar'),
             thirst: document.getElementById('player-thirst'),
             thirstBar: document.getElementById('player-thirst-bar'),
-            condition: document.getElementById('player-condition')
+            condition: document.getElementById('player-condition'),
+            conditionDescription: document.getElementById('player-condition-description')
         },
         ruloStats: {
             display: document.getElementById('rulo-stats-display'),
@@ -119,11 +167,12 @@ export function init() {
             hungerBar: document.getElementById('rulo-hunger-bar'),
             thirst: document.getElementById('rulo-thirst'),
             thirstBar: document.getElementById('rulo-thirst-bar'),
-            fear: document.getElementById('rulo-fear'), // NUEVO
-            fearBar: document.getElementById('rulo-fear-bar'), // NUEVO
+            fear: document.getElementById('rulo-fear'),
+            fearBar: document.getElementById('rulo-fear-bar'),
             energy: document.getElementById('rulo-energy'),
             energyBar: document.getElementById('rulo-energy-bar'),
-            condition: document.getElementById('rulo-condition')
+            condition: document.getElementById('rulo-condition'),
+            conditionDescription: document.getElementById('rulo-condition-description')
         }
     };
 
@@ -136,26 +185,32 @@ export function init() {
     startGameLoop(); // Inicia el loop principal del juego
 }
 
-/** Carga la dificultad desde el settings-manager */
+/** Carga la dificultad y la establece en GAME_SETTINGS */
 function loadDifficulty() {
     GAME_STATE.difficulty = getDifficulty() || 'normal';
+    GAME_SETTINGS.DRAIN_RATES.difficulty = GAME_STATE.difficulty; // Actualiza el objeto de settings
     console.log('Dificultad cargada:', GAME_STATE.difficulty);
 }
 
 /** Configura los listeners para todos los modales y atajos */
 function setupModalListeners() {
-    // ... (idéntico)
     // Botón de Inventario
     dom.inventoryBtn.addEventListener('click', () => showModal(dom.inventoryModal));
     
     // BOTONES DE ESTADO (ACTUALIZADO)
     dom.playerStatusBtn.addEventListener('click', () => {
         dom.playerStats.display.classList.remove('hidden');
-        dom.ruloStats.display.classList.add('hidden');
+        // Ocultar Rulo si su botón de estado aún no es visible
+        if (dom.ruloStatusBtn.classList.contains('hidden')) {
+            dom.ruloStats.display.classList.add('hidden');
+        } else {
+            dom.ruloStats.display.classList.remove('hidden');
+        }
         showModal(dom.statusModal);
     });
+    
     dom.ruloStatusBtn.addEventListener('click', () => {
-        dom.playerStats.display.classList.add('hidden');
+        dom.playerStats.display.classList.remove('hidden');
         dom.ruloStats.display.classList.remove('hidden');
         showModal(dom.statusModal);
     });
@@ -163,7 +218,20 @@ function setupModalListeners() {
     // Botones de Cierre de Modal
     document.querySelectorAll('.close-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-            hideModal(document.getElementById(btn.getAttribute('data-modal-id')));
+            const modalToHide = document.getElementById(btn.getAttribute('data-modal-id'));
+            
+            // Si el modal tiene una promesa pendiente (como el lector de notas), resuélvela
+            if (modalToHide.resolvePromise) {
+                modalToHide.resolvePromise();
+                modalToHide.resolvePromise = null; // Limpiar
+            }
+            
+            // Si cerramos el minijuego, forzar fracaso
+            if (modalToHide === dom.minigameModal && minigame.isActive) {
+                endBreathingMinigame(false, true); // Fracaso por cerrar
+            }
+            
+            hideModal(modalToHide);
         });
     });
 
@@ -194,18 +262,24 @@ function setupInventoryTabListeners() {
 
 /** Configura el listener global de teclado (ESC, I, E) */
 function setupGlobalKeyListener() {
-    // ... (idéntico, excepto por el skip)
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             e.preventDefault();
             if (activeModal) {
-                hideModal(activeModal);
+                // Simula el clic en el botón de cierre del modal activo
+                const closeBtn = activeModal.querySelector('.close-btn');
+                if (closeBtn) {
+                    closeBtn.click();
+                } else {
+                    hideModal(activeModal); // Fallback
+                }
             } else {
                 dom.menuBtn.click(); // Simula clic en el botón de menú
             }
         }
         
-        if (dom.nameOverlay.style.display !== 'none') return;
+        // CORREGIDO: Comprobar si el overlay de nombre está activo
+        if (!dom.nameOverlay.classList.contains('hidden')) return;
         if (minigame.isActive) return; // No abrir menús durante minijuego
 
         if (e.key === 'i' || e.key === 'I') {
@@ -218,7 +292,7 @@ function setupGlobalKeyListener() {
             if (activeModal === dom.statusModal) {
                 hideModal(activeModal);
             } else {
-                dom.playerStatusBtn.click(); // Abre el estado del JUGADOR por defecto
+                dom.playerStatusBtn.click(); // Abre el estado (que ahora muestra ambos)
             }
         }
     });
@@ -233,32 +307,34 @@ function setupGlobalKeyListener() {
 /** Inicia el loop principal para manejar drenajes de estado y eventos pasivos */
 function startGameLoop() {
     setInterval(() => {
+        const rates = GAME_SETTINGS.DRAIN_RATES[GAME_SETTINGS.DRAIN_RATES.difficulty];
+        
         // 1. Lógica de la Linterna
         if (GAME_STATE.rulo.hasFlashlight && GAME_STATE.rulo.energy > 0) {
-            // Rulo tiene la linterna, drenaje normal
-            // (La dificultad podría afectar 'drainRate')
-            let drainRate = 1; 
-            updateRuloState('energy', -drainRate);
+            updateRuloState('energy', -rates.energy);
             
             if (GAME_STATE.rulo.energy === 0) {
                 addNotification("¡La batería de la linterna se agotó!", "danger");
             }
-        } 
-        // Si el jugador tuviera la linterna:
-        // else if (GAME_STATE.player.hasFlashlight && GAME_STATE.player.energy > 0) {
-        //     let drainRate = 3; // Drenaje rápido
-        //     updatePlayerState('energy', -drainRate);
-        // }
+        }
         
         // 2. Lógica de Oscuridad (Miedo Progresivo)
         if (GAME_STATE.rulo.energy <= 0 && GAME_STATE.rulo.hasFlashlight) { // Solo si ya tuvo linterna
-            // Está oscuro
             addNotification("Está oscuro... demasiado oscuro...", "danger");
-            updatePlayerState('fear', 1);
-            updateRuloState('fear', 1);
+            updatePlayerState('fear', rates.fear_darkness);
+            updateRuloState('fear', rates.fear_darkness);
+        }
+        
+        // 3. Lógica de Hambre y Sed (ACTUALIZADO)
+        updatePlayerState('hunger', -rates.hunger);
+        updatePlayerState('thirst', -rates.thirst);
+        
+        if (GAME_STATE.rulo.hasFlashlight) { // Rulo solo gasta si está "activo" (tiene linterna)
+             updateRuloState('hunger', -rates.hunger);
+             updateRuloState('thirst', -rates.thirst);
         }
 
-    }, GAME_LOOP_INTERVAL_MS);
+    }, GAME_SETTINGS.DRAIN_INTERVAL_MS);
 }
 
 
@@ -316,7 +392,7 @@ function skipTyping() {
     }
 }
 
-/** Muestra un texto con efecto "typing" (AHORA SE PUEDE OMITIR) */
+/** Muestra un texto con efecto "typing" (ACTUALIZADO) */
 export async function addDialogue(text, speaker = '') {
     // Si ya se está escribiendo, no hacer nada (previene doble clic)
     if (isTyping && speaker !== 'Sistema' && speaker !== 'Sonido') return; 
@@ -328,7 +404,7 @@ export async function addDialogue(text, speaker = '') {
         span.className = 'dialogue-speaker';
         
         if (speaker === 'Tú') {
-            span.textContent = `${GAME_STATE.playerName}:`;
+            span.textContent = `${GAME_STATE.playerName}`;
         } else if (speaker === 'Sistema' || speaker === 'Sonido') {
             span.className = 'dialogue-system';
             span.textContent = text;
@@ -336,12 +412,12 @@ export async function addDialogue(text, speaker = '') {
             dom.dialogueWindow.appendChild(p);
             dom.dialogueWindow.scrollTop = dom.dialogueWindow.scrollHeight;
             
-            // --- ACTUALIZADO: Cooldown para diálogos de sistema ---
-            await wait(SYSTEM_DIALOGUE_COOLDOWN_MS); 
+            // --- ACTUALIZADO: Cooldown NO bloqueante ---
+            wait(SYSTEM_DIALOGUE_COOLDOWN_MS); // Inicia el timer, pero no espera
+            return; // Retorna inmediatamente
             // ---------------------------------------------------
-            return;
         } else {
-            span.textContent = `${speaker}:`;
+            span.textContent = `${speaker}`;
         }
         p.appendChild(span);
     }
@@ -355,6 +431,7 @@ export async function addDialogue(text, speaker = '') {
     isTyping = true;
     forceSkipTyping = false;
     
+    // CORREGIDO: Añade los dos puntos y el espacio aquí
     const textToType = (speaker && speaker !== 'Sistema' && speaker !== 'Sonido') ? `: ${text}` : text;
     
     for (let i = 0; i < textToType.length; i++) {
@@ -410,11 +487,23 @@ export function addChoice(text, callback) {
     dom.choiceWindow.appendChild(a);
 }
 
-/** Muestra el lector de notas */
+/** Muestra el lector de notas y DEVUELVE UNA PROMESA que se resuelve al cerrar */
 export function showNoteReader(title, content) {
     dom.noteTitle.textContent = title;
     dom.noteContent.textContent = content;
     showModal(dom.noteReaderModal);
+    
+    // Devuelve una promesa que el listener del botón de cierre resolverá
+    return new Promise(resolve => {
+        dom.noteReaderModal.resolvePromise = resolve;
+    });
+}
+
+/** Espera a que un item específico sea usado */
+export function waitForItemUse(itemId) {
+    return new Promise(resolve => {
+        itemUseResolvers[itemId] = resolve;
+    });
 }
 
 // --- Gestión de Estado y Datos ---
@@ -434,7 +523,7 @@ export function setNightNumber(num) {
     saveGame();
 }
 export function getNightNumber() { return GAME_STATE.currentNight; }
-export function isNewPlayer() { return !GAME_STATE.flags.isNewPlayer || GAME_STATE.playerName === "Tú"; }
+export function isNewPlayer() { return !GAME_STATE.flags.isNewPlayer; }
 
 /** Establece la ubicación actual */
 export function setLocation(locationName) {
@@ -462,6 +551,7 @@ export function updatePlayerState(stat, value, isAbsolute = false) {
     if (stat === 'fear') {
         dom.fearBarFill.style.width = `${val}%`;
         dom.fearValue.textContent = val;
+        updateFearVignette(val); // Actualiza el efecto de miedo
     } else {
         dom.playerStats[stat].textContent = `${val}/100`;
         dom.playerStats[`${stat}Bar`].style.width = `${val}%`;
@@ -489,8 +579,6 @@ export function updateRuloState(stat, value, isAbsolute = false) {
     saveGame();
 }
 
-// --- ACTUALIZADO: Funciones para mostrar botones de estado ---
-
 /** Muestra el botón de estado del Jugador */
 export function showPlayerStatsButton() {
     dom.playerStatusBtn.classList.remove('hidden');
@@ -499,8 +587,8 @@ export function showPlayerStatsButton() {
 /** Muestra las estadísticas de Rulo en la UI */
 export function showRuloStats() {
     dom.ruloStatusBtn.classList.remove('hidden');
+    dom.ruloStats.display.classList.remove('hidden');
 }
-// --- FIN DE ACTUALIZACIÓN ---
 
 
 /** Añade un item al inventario y guarda */
@@ -557,6 +645,17 @@ function loadGame() {
         GAME_STATE.rulo = { ...GAME_STATE.rulo, ...parsedData.rulo };
         GAME_STATE.inventory = { ...GAME_STATE.inventory, ...parsedData.inventory };
         GAME_STATE.flags = { ...GAME_STATE.flags, ...parsedData.flags };
+        
+        // CORRECCIÓN: Asegurarse de que isNewPlayer se cargue correctamente
+        // Si flags no existe en el save, se reinicia.
+        if (!parsedData.flags) {
+            GAME_STATE.flags = { isNewPlayer: true };
+        } else {
+            GAME_STATE.flags.isNewPlayer = parsedData.flags.isNewPlayer || false;
+        }
+
+    } else {
+        GAME_STATE.flags.isNewPlayer = true;
     }
 }
 
@@ -567,18 +666,19 @@ function updateAllUI() {
     updatePlayerState('hunger', 0);
     updatePlayerState('thirst', 0);
     updatePlayerState('fear', 0);
-
-    // Ocultar Rulo por defecto (El botón de jugador se oculta en el HTML)
-    // dom.ruloStatusBtn.classList.add('hidden'); // Ya está hidden en HTML
     
-    // Mostrar Rulo si es relevante (PERO SU BOTÓN SEGUIRÁ OCULTO HASTA EL TUTORIAL)
-    if (GAME_STATE.rulo.health < 100 || GAME_STATE.rulo.hasFlashlight || GAME_STATE.currentNight > 0) {
-        // showRuloStats(); // <-- NO mostrar el botón aún, solo actualizar datos
+    // Si Rulo ya fue desbloqueado en una partida anterior, mostrar su botón
+    if (GAME_STATE.rulo.hasFlashlight || getFlag('n1_gave_flashlight')) {
+        showRuloStats();
         updateRuloState('health', 0);
         updateRuloState('hunger', 0);
         updateRuloState('thirst', 0);
         updateRuloState('fear', 0);
         updateRuloState('energy', 0);
+    } else {
+        // Asegurarse de que esté oculto si no
+        dom.ruloStatusBtn.classList.add('hidden');
+        dom.ruloStats.display.classList.add('hidden');
     }
     
     renderInventory();
@@ -607,24 +707,49 @@ function applyTheme(themeName) {
     }
 }
 
+/** Actualiza el texto de condición (NUEVOS ESTADOS) */
 function updateCondition(character) {
     const state = GAME_STATE[character];
     const ui = (character === 'player') ? dom.playerStats : dom.ruloStats;
     let condition = "Estable";
     let cssClass = "condition-stable";
+    let description = "Sin efectos negativos.";
 
     if (state.fear > 80 || state.health < 15) {
-        condition = "Crítico"; cssClass = "condition-critical";
+        condition = "Crítico"; cssClass = "condition-critical"; description = "Al borde del colapso. El miedo extremo drena la salud.";
     } else if (state.fear > 60) {
-        condition = "Aterrado"; cssClass = "condition-terrified";
+        condition = "Aterrado"; cssClass = "condition-terrified"; description = "Manos temblorosas. Cuesta concentrarse.";
+    } else if (state.fear > 45) { // NUEVO ESTADO
+        condition = "Asustado"; cssClass = "condition-terrified"; description = "Paranoia. Los ruidos parecen más fuertes.";
     } else if (state.health < 40) {
-        condition = "Herido"; cssClass = "condition-wounded";
-    } else if (state.fear > 30) {
-        condition = "Nervioso"; cssClass = "condition-nervous";
+        condition = "Herido"; cssClass = "condition-wounded"; description = "El dolor nubla tus sentidos.";
+    } else if (state.fear > 20) {
+        condition = "Nervioso"; cssClass = "condition-nervous"; description = "Alerta máxima. El corazón late con fuerza.";
+    } else if (state.hunger < 20) {
+        condition = "Hambriento"; cssClass = "condition-wounded"; description = "El estómago ruge. Falta de energía.";
+    } else if (state.thirst < 20) {
+        condition = "Sediento"; cssClass = "condition-wounded"; description = "Boca seca. Mareos leves.";
     }
 
     ui.condition.textContent = condition;
     ui.condition.className = cssClass;
+    ui.conditionDescription.textContent = description;
+}
+
+/** Actualiza el efecto de viñeta del miedo */
+function updateFearVignette(fearValue) {
+    const opacity = fearValue / 100; // Opacidad de 0 a 1
+    const spread = 50 + (fearValue * 2); // Propagación de 50px a 250px
+    
+    dom.vignetteOverlay.style.boxShadow = `inset 0 0 ${spread}px ${spread/2}px rgba(0,0,0,${opacity})`;
+
+    if (fearValue > 80) {
+        dom.vignetteOverlay.classList.add('pulse-critical');
+    } else if (fearValue > 50) {
+        dom.vignetteOverlay.classList.add('pulse-fast');
+    } else {
+        dom.vignetteOverlay.classList.remove('pulse-fast', 'pulse-critical');
+    }
 }
 
 /** Dibuja los items en el inventario y AÑADE LISTENERS */
@@ -647,7 +772,7 @@ function renderInventory() {
         dom.tabs.consumables.appendChild(div);
     });
     
-    // Items Clave
+    // Items Clave (Objetos)
     GAME_STATE.inventory.keyItems.forEach(item => {
         dom.tabs.keyItems.innerHTML += `<div class="inventory-item"><span>${item.name}</span></div>`;
     });
@@ -679,6 +804,12 @@ function renderInventory() {
 
 /** Lógica central para USAR un item */
 function useItem(item) {
+    // Resuelve la promesa si el juego está esperando este item
+    if (itemUseResolvers[item.id]) {
+        itemUseResolvers[item.id]();
+        delete itemUseResolvers[item.id];
+    }
+    
     hideModal(dom.inventoryModal); // Ocultar inventario
 
     switch(item.id) {
@@ -762,11 +893,6 @@ function applyConsumableEffect(stat, totalRestore, target = 'player') {
     }, tickRate);
 }
 
-/** Comprueba si el jugador tiene un item (por id) */
-function playerHasItem(itemId) {
-    return GAME_STATE.inventory.consumables.some(i => i.id === itemId);
-}
-
 /** Reproduce un sonido (y lo detiene opcionalmente) */
 export function playAudio(audioId, durationInSeconds = 0) {
     const audio = audioCache[audioId];
@@ -787,7 +913,7 @@ export function playAudio(audioId, durationInSeconds = 0) {
 /** Inicia la lógica de un minijuego */
 function startMinigame(item) {
     if (item.id === 'tranqui_oso') {
-        if (GAME_STATE.player.fear < 60) {
+        if (GAME_STATE.player.fear < 40) { // Umbral bajado
             hideModal(dom.inventoryModal);
             addNotification("No sientes la necesidad de usarlo ahora. Tu miedo no es tan alto.");
             return;
@@ -797,68 +923,168 @@ function startMinigame(item) {
     }
 }
 
-/** Lógica del Minijuego de Respiración */
+// --- LÓGICA DEL MINIJUEGO DE RESPIRACIÓN (MEJORADA) ---
+
+const BREATH_PHASES = {
+    INHALE: { duration: 4000, instruction: "MANTÉN PRESIONADO PARA INHALAR..." },
+    HOLD:   { duration: 2000, instruction: "SIGUE MANTENIENDO..." },
+    EXHALE: { duration: 4000, instruction: "SUELTA PARA EXHALAR..." },
+    WAIT:   { duration: 1000, instruction: "..." }
+};
+const BREATHS_TO_WIN = 3;
+const FAILS_TO_LOSE = 2;
+let lastFrameTime = 0;
+let isHoldingClick = false;
+
 function startBreathingMinigame() {
     hideModal(dom.inventoryModal);
     showModal(dom.minigameModal);
     
     minigame = {
         isActive: true,
+        phase: 'tutorial',
+        timer: 0,
         breaths: 0,
-        isHolding: false
+        failures: 0,
+        loop: null
     };
     
+    isHoldingClick = false;
+    
+    // Mostrar tutorial, ocultar juego
+    dom.minigameTutorial.classList.remove('hidden');
+    dom.minigameContent.classList.add('hidden');
+    
+    // Listeners de input
+    dom.minigameModal.onmousedown = () => { isHoldingClick = true; };
+    dom.minigameModal.onmouseup = () => { isHoldingClick = false; };
+    dom.minigameModal.ontouchstart = (e) => { e.preventDefault(); isHoldingClick = true; };
+    dom.minigameModal.ontouchend = (e) => { e.preventDefault(); isHoldingClick = false; };
+
+    // Botón para empezar
+    dom.minigameStartBtn.onclick = () => {
+        dom.minigameTutorial.classList.add('hidden');
+        dom.minigameContent.classList.remove('hidden');
+        setBreathPhase('INHALE');
+        lastFrameTime = performance.now();
+        minigame.loop = requestAnimationFrame(breathingGameLoop);
+    };
+
+    // Resetear UI
     dom.breathCount.textContent = "0";
-    dom.breathingCircle.style.animation = 'none'; // Reset anim
-    void dom.breathingCircle.offsetWidth; // Trigger reflow
-    dom.breathingCircle.style.animation = 'breath 8s ease-in-out infinite';
-
-    dom.minigameInstructions.textContent = "Mantén presionado para INHALAR... Suelta para EXHALAR.";
-
-    // Listeners
-    dom.breathingCircle.onmousedown = () => { minigame.isHolding = true; };
-    document.onmouseup = () => { minigame.isHolding = false; };
-    
-    // El "éxito" se basa en si mantienes presionado durante la inhalación
-    // (mitad de la animación) y sueltas durante la exhalación (otra mitad)
-    // Esta es una simulación simplificada
-    
-    // Simulación simple: Clic en el momento correcto
-    dom.breathingCircle.onclick = () => {
-        if (!minigame.isActive) return;
-        
-        // Comprobar el estado de la animación (simplificado)
-        // Pedimos 3 "clics" exitosos
-        minigame.breaths++;
-        dom.breathCount.textContent = minigame.breaths;
-        
-        if (minigame.breaths >= 3) {
-            endBreathingMinigame(true); // Éxito
-        }
-    };
-    
-    // Timeout por si el jugador no hace nada
-    setTimeout(() => {
-        if (minigame.isActive && minigame.breaths < 3) {
-            endBreathingMinigame(false); // Fracaso
-        }
-    }, 15000); // 15 segundos para completarlo
+    dom.breathFails.textContent = "0";
 }
 
-function endBreathingMinigame(success) {
+function setBreathPhase(newPhase) {
+    minigame.phase = newPhase;
+    minigame.timer = BREATH_PHASES[newPhase].duration;
+    dom.minigameInstructions.textContent = BREATH_PHASES[newPhase].instruction;
+    
+    dom.breathingCircle.className = 'breathing-circle'; // Reset
+    
+    if (newPhase === 'INHALE') {
+        dom.breathingCircle.classList.add('inhale');
+    } else if (newPhase === 'EXHALE') {
+        dom.breathingCircle.classList.add('exhale');
+    } else if (newPhase === 'HOLD') {
+        dom.breathingCircle.classList.add('hold');
+    }
+}
+
+function breathingGameLoop(now) {
+    if (!minigame.isActive) return;
+
+    const deltaTime = now - lastFrameTime;
+    lastFrameTime = now;
+    minigame.timer -= deltaTime;
+    
+    const { phase, timer } = minigame;
+    
+    // Mostrar timer
+    dom.minigameTimer.textContent = (timer / 1000).toFixed(1);
+
+    // Lógica de fallo
+    if (phase === 'INHALE' && !isHoldingClick) {
+        failBreath("¡Soltaste demasiado pronto!");
+    } else if (phase === 'HOLD' && !isHoldingClick) {
+        failBreath("¡Debías seguir manteniendo!");
+    } else if (phase === 'EXHALE' && isHoldingClick) {
+        failBreath("¡Debías soltar!");
+    }
+
+    // Transición de fases
+    if (timer <= 0) {
+        switch (phase) {
+            case 'INHALE':
+                setBreathPhase('HOLD');
+                break;
+            case 'HOLD':
+                setBreathPhase('EXHALE');
+                break;
+            case 'EXHALE':
+                succeedBreath();
+                break;
+            case 'WAIT':
+                setBreathPhase('INHALE');
+                break;
+        }
+    }
+    
+    if (minigame.isActive) {
+        minigame.loop = requestAnimationFrame(breathingGameLoop);
+    }
+}
+
+function failBreath(reason) {
+    if (!minigame.isActive) return;
+    
+    playAudio('estatica', 1);
+    addNotification(reason, 'danger');
+    minigame.failures++;
+    dom.breathFails.textContent = minigame.failures;
+    
+    if (minigame.failures >= FAILS_TO_LOSE) {
+        endBreathingMinigame(false); // Fracaso
+    } else {
+        // Reiniciar ciclo
+        setBreathPhase('WAIT');
+    }
+}
+
+function succeedBreath() {
+    if (!minigame.isActive) return;
+
+    minigame.breaths++;
+    dom.breathCount.textContent = minigame.breaths;
+    
+    if (minigame.breaths >= BREATHS_TO_WIN) {
+        endBreathingMinigame(true); // Éxito
+    } else {
+        // Iniciar siguiente respiración
+        setBreathPhase('WAIT');
+    }
+}
+
+function endBreathingMinigame(success, manualClose = false) {
     if (!minigame.isActive) return;
     
     minigame.isActive = false;
-    hideModal(dom.minigameModal);
+    cancelAnimationFrame(minigame.loop);
     
     // Limpiar listeners
-    dom.breathingCircle.onmousedown = null;
-    document.onmouseup = null;
-    dom.breathingCircle.onclick = null;
+    dom.minigameModal.onmousedown = null;
+    dom.minigameModal.onmouseup = null;
+    dom.minigameModal.ontouchstart = null;
+    dom.minigameModal.ontouchend = null;
+    dom.minigameStartBtn.onclick = null;
+    
+    if (!manualClose) {
+        hideModal(dom.minigameModal);
+    }
     
     if (success) {
         addNotification("Respiras profundamente... El pánico retrocede.", "item");
-        updatePlayerState('fear', -20);
+        updatePlayerState('fear', -25); // Recompensa aumentada
     } else {
         addNotification("¡No puedes! ¡No puedes calmarte! El oso emite una leve estática...", "danger");
         updatePlayerState('fear', 10);

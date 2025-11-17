@@ -9,6 +9,8 @@
 </head>
 <body data-theme="verde-crt">
 
+    <div id="vignette-overlay"></div>
+
     <div id="loading-overlay" class="overlay"></div>
 
     <div id="name-input-overlay" class="overlay hidden">
@@ -69,7 +71,7 @@
             <div class="modal-body">
                 <div class="inventory-tabs">
                     <button class="tab-link active" data-tab="tab-consumables">Consumibles</button>
-                    <button class="tab-link" data-tab="tab-key-items">Items Clave</button>
+                    <button class="tab-link" data-tab="tab-key-items">Objetos</button>
                     <button class="tab-link" data-tab="tab-notes">Notas</button>
                     <button class="tab-link" data-tab="tab-minigames">Minijuegos</button>
                 </div>
@@ -101,7 +103,7 @@
             </div>
             <div class="modal-body">
                 
-                <div id="player-stats-display">
+                <div id="player-stats-display" class="stat-block">
                     <h3 id="player-stats-name">TÚ</h3>
                     <div class="stat-row">
                         <span>SALUD</span>
@@ -118,9 +120,10 @@
                         <div class="progress-bar-container"><div class="progress-bar-fill thirst" id="player-thirst-bar"></div></div>
                         <span id="player-thirst">100/100</span>
                     </div>
+                    <p class="stat-condition-description" id="player-condition-description">Sin efectos negativos.</p>
                 </div>
                 
-                <div id="rulo-stats-display" class="hidden" style="margin-top: 20px;">
+                <div id="rulo-stats-display" class="stat-block hidden">
                     <h3>RULO</h3>
                     <div class="stat-row">
                         <span>SALUD</span>
@@ -147,6 +150,7 @@
                         <div class="progress-bar-container"><div class="progress-bar-fill energy" id="rulo-energy-bar"></div></div>
                         <span id="rulo-energy">0/100</span>
                     </div>
+                    <p class="stat-condition-description" id="rulo-condition-description">Sin efectos negativos.</p>
                 </div>
                 
             </div>
@@ -157,16 +161,32 @@
         <div class="modal-content" style="width: 400px; text-align: center;">
             <div class="modal-header">
                 <h2>Respiración Controlada</h2>
+                <button class="close-btn" data-modal-id="minigame-modal">X</button>
             </div>
-            <div class="modal-body">
-                <div id="breathing-circle"></div>
+            
+            <div id="minigame-tutorial" class="modal-body">
+                <h3>TUTORIAL: TRANQUI-OSO</h3>
+                <p>Mantén presionado el clic (o la pantalla) cuando el círculo se EXPANDA (Inhalar).</p>
+                <p>Sigue manteniendo cuando el círculo se DETENGA (Sostener).</p>
+                <p>SUELTA el clic cuando el círculo se CONTRAIGA (Exhalar).</p>
+                <p>Si fallas 2 veces, el oso no te ayudará.</p>
+                <button id="minigame-start-btn" class="ui-btn" style="margin-top: 20px;">Comenzar</button>
+            </div>
+
+            <div id="minigame-content" class="modal-body hidden">
+                <div id="breathing-circle" class="breathing-circle"></div>
+                <div id="minigame-timer">4.0</div>
                 <p id="minigame-instructions">
-                    Mantén presionado para INHALAR... Suelta para EXHALAR.
+                    MANTÉN PRESIONADO PARA INHALAR...
                 </p>
-                <p>Completadas: <span id="breath-count">0</span> / 3</p>
+                <div class="minigame-stats">
+                    <span>Completadas: <span id="breath-count">0</span> / 3</span>
+                    <span>Fallos: <span id="breath-fails">0</span> / 2</span>
+                </div>
             </div>
         </div>
     </div>
+
     <script src="Motor.js" type="module"></script>
     <script src="Noche1.js" type="module"></script>
 </body>

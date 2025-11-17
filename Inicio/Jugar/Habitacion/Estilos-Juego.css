@@ -73,19 +73,19 @@ body, html {
     opacity: 1;
     z-index: 10000;
     transition: opacity 0.5s ease-out;
-    pointer-events: all; /* Por defecto puede recibir clics (bloquea) */
+    pointer-events: all; 
 }
 #loading-overlay.hidden {
     opacity: 0;
-    pointer-events: none; /* Cuando está oculta, no bloquea */
+    pointer-events: none; 
 }
-#loading-overlay.visible { /* Para el fade-out al salir */
+#loading-overlay.visible { 
     opacity: 1;
     pointer-events: all;
     transition: opacity 0.5s ease-in;
 }
 
-/* Efecto de distorsión/quemado (ACTUALIZADO) */
+/* Efecto de distorsión/quemado */
 .overlay.burn-out {
     animation: burn-out-effect 1.5s ease-out forwards;
 }
@@ -114,6 +114,33 @@ body, html {
     text-align: center;
 }
 
+/* --- NUEVO: Viñeta de Miedo --- */
+#vignette-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 500;
+    pointer-events: none;
+    /* Inicia invisible */
+    box-shadow: inset 0 0 50px 25px rgba(0,0,0,0);
+    transition: box-shadow 1.5s ease-out;
+}
+/* Clases de JS para pulso */
+#vignette-overlay.pulse-fast {
+    animation: pulse 2s ease-in-out infinite;
+}
+#vignette-overlay.pulse-critical {
+    animation: pulse 1s ease-in-out infinite;
+}
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.8; }
+    100% { opacity: 1; }
+}
+
+
 /* --- Contenedor Principal (Grid Layout) --- */
 #game-container {
     display: grid;
@@ -122,6 +149,9 @@ body, html {
     width: 100vw;
     border: 2px solid var(--primary-color);
     box-sizing: border-box;
+    /* La viñeta estará "encima" de esto pero "debajo" de los modales */
+    position: relative;
+    z-index: 1;
 }
 
 /* --- 1. Panel Superior --- */
@@ -152,30 +182,31 @@ body, html {
     overflow: hidden;
 }
 
-/* ¡CORRECCIÓN AQUI! */
 #main-content {
     display: flex;
     flex-direction: column;
     height: 100%; 
     border-right: 2px solid var(--primary-color);
-    overflow: hidden; /* <-- ESTA ES LA LÍNEA MÁGICA */
+    overflow: hidden;
 }
 #dialogue-window {
-    flex-grow: 1; /* Ocupa todo el espacio disponible */
+    flex-grow: 1; 
     padding: 15px;
-    overflow-y: auto; /* PERMITE EL SCROLL */
+    overflow-y: auto; 
     border-bottom: 2px dashed var(--primary-color);
 }
 #dialogue-window p {
     margin: 0 0 15px 0;
     line-height: 1.4;
-    max-width: 70%; /* Estético, para que no ocupe toda la línea */
+    /* max-width: 70%; // Quitado para permitir que fluya */
 }
+/* CORRECCIÓN DE DIÁLOGO: */
 .dialogue-speaker {
-    display: block;
+    /* display: block; // <--- ELIMINADO */
     font-weight: bold;
     text-shadow: 0 0 5px var(--primary-color);
-    margin-bottom: 5px;
+    /* margin-bottom: 5px; // <--- ELIMINADO */
+    margin-right: 0.25em; /* Pequeño espacio */
 }
 .dialogue-system {
     color: var(--primary-color);
@@ -191,8 +222,8 @@ body, html {
 }
 
 #choice-window {
-    flex-shrink: 0; /* No se encoge */
-    height: 200px;  /* Altura fija para las opciones */
+    flex-shrink: 0; 
+    height: 200px; 
     padding: 15px;
     overflow-y: auto;
 }
@@ -212,7 +243,7 @@ body, html {
 /* Notificaciones (Historial) */
 #notification-panel {
     padding: 10px;
-    overflow-y: auto; /* PERMITE EL SCROLL */
+    overflow-y: auto; 
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -258,9 +289,11 @@ body, html {
 #fear-meter-container .progress-bar-container {
     width: 200px;
     border-color: var(--fear-color);
+    box-shadow: 0 0 5px var(--fear-color); /* Mejora de UI */
 }
 #fear-meter-container .progress-bar-fill.fear {
     background-color: var(--fear-color);
+    box-shadow: 0 0 10px var(--fear-color); /* Mejora de UI */
 }
 #fear-value {
     font-size: 1.5rem;
@@ -366,6 +399,23 @@ body, html {
     background-color: var(--background-secondary);
 }
 
+/* --- MEJORA: Modal de Estado --- */
+.stat-block {
+    border: 1px dashed var(--primary-color);
+    padding: 15px;
+    margin-top: 15px;
+}
+.stat-block h3 {
+    margin-top: 0;
+    text-shadow: 0 0 5px var(--primary-color);
+}
+.stat-condition-description {
+    font-style: italic;
+    opacity: 0.7;
+    margin-top: 10px;
+    font-size: 1.1rem;
+}
+
 /* Barras de Progreso (Estado) */
 .stat-row {
     display: flex;
@@ -400,7 +450,7 @@ body, html {
 .progress-bar-fill.energy { background-color: var(--energy-color); }
 .progress-bar-fill.fear { background-color: var(--fear-color); } 
 
-/* --- ANIMACIONES DE BARRA DE MIEDO --- */
+/* Animaciones de Barra de Miedo */
 .progress-bar-fill.fear.fear-active {
     animation: vibrate-fast 0.3s linear infinite;
 }
@@ -422,41 +472,66 @@ body, html {
 }
 
 
-/* --- ESTILOS MINIJUEGO TRANQUI-OSO --- */
-#breathing-circle {
+/* --- MEJORA: ESTILOS MINIJUEGO TRANQUI-OSO --- */
+.breathing-circle {
     width: 150px;
     height: 150px;
     border: 3px solid var(--primary-color);
     border-radius: 50%;
     margin: 20px auto;
     box-shadow: 0 0 15px var(--primary-color);
-    animation: breath 8s ease-in-out infinite;
+    transform: scale(0.8); /* Estado inicial */
+}
+
+#minigame-timer {
+    font-size: 3rem;
+    color: var(--primary-color);
+    text-shadow: 0 0 10px var(--primary-color);
 }
 
 #minigame-instructions {
     opacity: 0.7;
     font-style: italic;
+    height: 2.5em; /* Espacio reservado para 2 líneas */
 }
 
-/* Animación de respiración */
-@keyframes breath {
-    0% {
-        transform: scale(0.8);
-        opacity: 0.7;
-    }
-    50% { /* Inhalar (4s) */
-        transform: scale(1.2);
-        opacity: 1;
-    }
-    100% { /* Exhalar (4s) */
-        transform: scale(0.8);
-        opacity: 0.7;
-    }
+.minigame-stats {
+    display: flex;
+    justify-content: space-around;
+    margin-top: 15px;
+    font-size: 1.2rem;
+}
+.minigame-stats span:last-child {
+    color: var(--danger-color);
+}
+
+/* Clases de animación del minijuego */
+.breathing-circle.inhale {
+    animation: scale-up 4s linear forwards;
+}
+.breathing-circle.hold {
+    animation: scale-hold 2s linear forwards;
+}
+.breathing-circle.exhale {
+    animation: scale-down 4s linear forwards;
+}
+
+/* Keyframes de respiración */
+@keyframes scale-up {
+    0% { transform: scale(0.8); opacity: 0.7; }
+    100% { transform: scale(1.2); opacity: 1; }
+}
+@keyframes scale-hold {
+    0% { transform: scale(1.2); opacity: 1; }
+    100% { transform: scale(1.2); opacity: 1; }
+}
+@keyframes scale-down {
+    0% { transform: scale(1.2); opacity: 1; }
+    100% { transform: scale(0.8); opacity: 0.7; }
 }
 
 /* --- ESTILOS DE SCROLLBAR --- */
 
-/* Scroll para Diálogo y Opciones (Estético) */
 #dialogue-window::-webkit-scrollbar,
 #choice-window::-webkit-scrollbar {
     width: 8px;
@@ -475,8 +550,7 @@ body, html {
     background-color: var(--hover-bg);
 }
 
-/* Scroll para Notificaciones (Invisible) */
 #notification-panel::-webkit-scrollbar {
     width: 0px;
-    background: transparent; /* Opcional */
+    background: transparent; 
 }
