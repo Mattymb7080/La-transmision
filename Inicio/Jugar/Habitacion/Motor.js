@@ -47,6 +47,22 @@ const GAME_SETTINGS = {
             hunger: 3,
             thirst: 4
         }
+    },
+
+    // Cooldowns en milisegundos
+    COOLDOWNS: {
+        OSO_COOLDOWN: {
+            'easy': 180000,      // 3 minutos
+            'normal': 300000,    // 5 minutos
+            'hard': 420000,      // 7 minutos
+            'nightmare': 600000  // 10 minutos
+        },
+        LOOT_COOLDOWN: {
+            'easy': 300000,      // 5 minutos
+            'normal': 600000,    // 10 minutos
+            'hard': 900000,      // 15 minutos
+            'nightmare': 1200000 // 20 minutos
+        }
     }
 };
 
@@ -58,7 +74,11 @@ let GAME_STATE = {
     player: { health: 100, hunger: 100, thirst: 100, fear: 0 },
     rulo: { health: 100, hunger: 100, thirst: 100, fear: 0, energy: 0, hasFlashlight: false },
     inventory: { consumables: [], keyItems: [], notes: [], minigames: [] },
-    flags: {}, // Para rastrear decisiones (ej. ventana)
+    flags: {
+        tranquiOsoCooldown: 0, // Almacena el timestamp (Date.now() + ms)
+        wardrobe_cooldown: 0
+    }, // NUEVO: Cooldown para resetear fallos al cerrar
+    tranquiOsoFailResetCooldown: 0,
     currentLocation: "Habitación 1204"
 };
 
@@ -69,6 +89,10 @@ let activeModal = null;
 // --- ESTADO DEL TYPING ---
 let isTyping = false;
 let forceSkipTyping = false;
+// --- NUEVO: Estado para Omitir Diálogo de Sistema ---
+let isWaitingOnSystem = false;
+let systemWaitResolver = null;
+
 
 // --- ESTADO DEL MINIJUEGO ---
 let minigame = {
@@ -209,6 +233,11 @@ function loadDifficulty() {
     console.log('Dificultad cargada:', GAME_STATE.difficulty);
 }
 
+// CORRECCIÓN: Renombrada para evitar colisión con la de settings-manager
+export function getGameDifficulty() {
+    return GAME_STATE.difficulty; 
+}
+
 /** NUEVO: Popula el desplegable de temas */
 function populateThemeSelect() {
     dom.gameThemeSelect.innerHTML = ''; // Limpiar
@@ -275,19 +304,23 @@ function setupModalListeners() {
             
             // Si cerramos el minijuego, forzar fracaso
             if (modalToHide === dom.minigameModal && minigame.isActive) {
-                endBreathingMinigame(false, true); // Fracaso por cerrar
+                // CORRECCIÓN: Llamar con (false, true) para indicar cierre manual
+                // sin penalización.
+                endBreathingMinigame(false, true); // Cierre manual
             }
             
             hideModal(modalToHide);
         });
     });
 
-    // Botón de Menú (Pantalla de Carga)
+    // CORRECCIÓN: Botón de Menú (☰) ahora abre la Pausa
     dom.menuBtn.addEventListener('click', () => {
-        dom.loadingOverlay.classList.add('visible');
-        setTimeout(() => {
-            window.location.href = '../../Inicio.html';
-        }, 500); // Espera a que termine el fade-out
+        // Abrir el modal de pausa, igual que ESC
+        if (activeModal === dom.pauseModal) {
+            hideModal(dom.pauseModal);
+        } else if (!activeModal) { // Solo abrir si no hay otro modal
+            showModal(dom.pauseModal);
+        }
     });
 }
 
@@ -340,6 +373,19 @@ function setupGlobalKeyListener() {
         if (e.key === 'i' || e.key === 'I') {
             e.preventDefault();
             activeModal === dom.inventoryModal ? hideModal(activeModal) : showModal(dom.inventoryModal);
+        }
+        
+        // NUEVO: Atajo 'T' para Tranqui-Oso
+        if (e.key === 't' || e.key === 'T') {
+            e.preventDefault();
+            if (activeModal) return; // No si hay otro modal abierto
+            
+            const oso = GAME_STATE.inventory.minigames.find(i => i.id === 'tranqui_oso');
+            if (oso) {
+                startMinigame(oso);
+            } else {
+                addNotification("No tienes el Tranqui-Oso.", "danger");
+            }
         }
         
         if (e.key === 'e' || e.key === 'E') {
@@ -446,6 +492,13 @@ function skipTyping() {
     if (isTyping) {
         forceSkipTyping = true;
     }
+    
+    // NUEVO: Omitir espera de diálogo de sistema
+    if (isWaitingOnSystem && systemWaitResolver) {
+        systemWaitResolver(); // Resuelve la promesa inmediatamente
+        isWaitingOnSystem = false;
+        systemWaitResolver = null;
+    }
 }
 
 /** Muestra un texto con efecto "typing" (ACTUALIZADO) */
@@ -470,9 +523,18 @@ export async function addDialogue(text, speaker = '') {
             
             // --- CORRECCIÓN: Hacer que 'Sistema' sea bloqueante (awaitable) ---
             //    para que los await en Noche1.js funcionen.
-            await wait(SYSTEM_DIALOGUE_COOLDOWN_MS); // Espera el cooldown
+            // --- NUEVO: Cooldown Omitible ---
+            isWaitingOnSystem = true;
+            const waitPromise = new Promise(resolve => {
+                systemWaitResolver = resolve;
+                setTimeout(resolve, SYSTEM_DIALOGUE_COOLDOWN_MS);
+            });
+            await waitPromise;
+            isWaitingOnSystem = false;
+            systemWaitResolver = null;
+            // --- Fin Cooldown Omitible ---
+
             return; // Retorna la promesa resuelta
-            // ---------------------------------------------------
         } else {
             span.textContent = `${speaker}`;
         }
@@ -574,11 +636,16 @@ export function setPlayerName(name) {
 }
 export function getPlayerName() { return GAME_STATE.playerName; }
 
-/** Establece el número de la noche */
+/** NUEVO: Devuelve el objeto de estado completo (Solo Lectura) */
+export function getState() {
+    return GAME_STATE;
+}
+
 export function setNightNumber(num) {
     GAME_STATE.currentNight = num;
     saveGame();
 }
+/** Establece el número de la noche */
 export function getNightNumber() { return GAME_STATE.currentNight; }
 
 /** CORREGIDO: Devuelve true si la flag 'isNewPlayer' no es explícitamente 'false' */
@@ -601,6 +668,15 @@ export function setFlag(flagName, value) {
 export function getFlag(flagName) {
     return GAME_STATE.flags[flagName];
 }
+
+/** NUEVO: Devuelve los objetos de configuración de cooldown */
+export function getOsoCooldownRates() {
+    return GAME_SETTINGS.COOLDOWNS.OSO_COOLDOWN;
+}
+export function getLootCooldownRates() {
+    return GAME_SETTINGS.COOLDOWNS.LOOT_COOLDOWN;
+}
+
 
 
 /** Actualiza una estadística del jugador. */
@@ -692,6 +768,7 @@ export function wait(ms) {
 // --- FUNCIONES PRIVADAS DEL MOTOR ---
 
 function saveGame() {
+    // console.log("Juego Guardado", GAME_STATE); // Descomentar para debug
     localStorage.setItem(SAVE_KEY, JSON.stringify(GAME_STATE));
 }
 
@@ -861,12 +938,37 @@ function renderInventory() {
     // Minijuegos
     GAME_STATE.inventory.minigames.forEach(item => {
         const div = document.createElement('div');
+        
+        // --- LÓGICA DE COOLDOWN DE OSO ---
+        let onCooldown = false;
+        if (item.id === 'tranqui_oso' && GAME_STATE.flags.tranquiOsoCooldown > Date.now()) {
+            onCooldown = true;
+        }
+        
+        // --- FIN LÓGICA COOLDOWN ---
+        
         div.className = 'inventory-item';
         div.innerHTML = `<span>${item.name}</span>`;
         const playBtn = document.createElement('button');
         playBtn.className = 'ui-btn';
         playBtn.textContent = 'Usar';
         playBtn.onclick = () => startMinigame(item); // <-- Lógica de "Minijuego"
+        
+        if (onCooldown) {
+            playBtn.textContent = 'Recargando...';
+            playBtn.disabled = true;
+            
+            // Añadir temporizador
+            const remaining = Math.ceil((GAME_STATE.flags.tranquiOsoCooldown - Date.now()) / 1000);
+            const timerSpan = document.createElement('span');
+            timerSpan.style.opacity = "0.7";
+            timerSpan.style.marginLeft = "10px";
+            const minutes = Math.floor(remaining / 60);
+            const seconds = (remaining % 60).toString().padStart(2, '0');
+            timerSpan.textContent = `(${minutes}:${seconds})`;
+            div.appendChild(timerSpan);
+        }
+        
         div.appendChild(playBtn);
         dom.tabs.minigames.appendChild(div);
     });
@@ -985,9 +1087,28 @@ export function playAudio(audioId, durationInSeconds = 0) {
 /** Inicia la lógica de un minijuego */
 function startMinigame(item) {
     if (item.id === 'tranqui_oso') {
-        if (GAME_STATE.player.fear < 40) { // Umbral bajado
+        // Revisar cooldown
+        if (GAME_STATE.flags.tranquiOsoCooldown > Date.now()) {
+            const remaining = Math.ceil((GAME_STATE.flags.tranquiOsoCooldown - Date.now()) / 1000);
+            const minutes = Math.floor(remaining / 60);
+            const seconds = (remaining % 60).toString().padStart(2, '0');
             hideModal(dom.inventoryModal);
-            addNotification("No sientes la necesidad de usarlo ahora. Tu miedo no es tan alto.");
+            addNotification(`Tranqui-Oso necesita descansar. (${minutes}:${seconds} restantes)`, 'danger');
+            return;
+        }
+
+        // CORRECCIÓN: Cooldown terminado, resetear fallos guardados
+        if (GAME_STATE.flags.tranquiOsoFails > 0) {
+            GAME_STATE.flags.tranquiOsoFails = 0;
+            saveGame();
+        }
+
+        // Revisar si alguien lo necesita
+        // CORRECCIÓN: Usar getState()
+        const currentState = getState();
+        if (currentState.player.fear < 40 && currentState.rulo.fear < 40) {
+            hideModal(dom.inventoryModal);
+            addNotification("Ni tú ni Rulo parecen necesitarlo. El miedo no es tan alto.");
             return;
         }
         // Iniciar minijuego
@@ -1016,8 +1137,10 @@ function startBreathingMinigame() {
         isActive: true,
         phase: 'tutorial',
         timer: 0,
+        // 'failures' se cargará al resetear la UI
         breaths: 0,
         failures: 0,
+        isFailing: false,
         loop: null,
         // NUEVO: Handlers de Teclado
         spacebarDown: (e) => {
@@ -1051,18 +1174,35 @@ function startBreathingMinigame() {
     document.addEventListener('keydown', minigame.spacebarDown);
     document.addEventListener('keyup', minigame.spacebarUp);
 
+    // --- LÓGICA DE OMITIR TUTORIAL ---
+    let views = GAME_STATE.flags.tutorial_Oso_Views || 0;
+
     // Botón para empezar
     dom.minigameStartBtn.onclick = () => {
         dom.minigameTutorial.classList.add('hidden');
         dom.minigameContent.classList.remove('hidden');
-        setBreathPhase('INHALE');
+        setBreathPhase('WAIT');
         lastFrameTime = performance.now();
         minigame.loop = requestAnimationFrame(breathingGameLoop);
     };
+    
+    if (views < 2) {
+        // Mostrar tutorial
+        dom.minigameTutorial.classList.remove('hidden');
+        dom.minigameContent.classList.add('hidden');
+        GAME_STATE.flags.tutorial_Oso_Views = views + 1;
+        saveGame();
+    } else {
+        // Omitir tutorial, simular clic en el botón
+        dom.minigameStartBtn.onclick();
+    }
+    // --- FIN LÓGICA TUTORIAL ---
 
     // Resetear UI (Ahora 'Fallos' se muestra correctamente en 0)
+    // CORRECCIÓN: Cargar fallos guardados
+    minigame.failures = GAME_STATE.flags.tranquiOsoFails || 0;
     dom.breathCount.textContent = "0";
-    dom.breathFails.textContent = "0";
+    dom.breathFails.textContent = minigame.failures;
 }
 
 function setBreathPhase(newPhase) {
@@ -1082,7 +1222,13 @@ function setBreathPhase(newPhase) {
 }
 
 function breathingGameLoop(now) {
-    if (!minigame.isActive) return;
+    // NUEVO: Pausar el loop si estamos en medio de un fallo/éxito
+    if (!minigame.isActive || minigame.isFailing) {
+        if (minigame.isActive) {
+            minigame.loop = requestAnimationFrame(breathingGameLoop);
+        }
+        return;
+    }
 
     const deltaTime = now - lastFrameTime;
     lastFrameTime = now;
@@ -1094,15 +1240,21 @@ function breathingGameLoop(now) {
     dom.minigameTimer.textContent = (timer / 1000).toFixed(1);
 
     // Lógica de fallo
-    if (phase === 'INHALE' && !isHoldingClick && timer < (BREATH_PHASES.INHALE.duration - 100)) { // Pequeño margen
-        failBreath("¡Soltaste demasiado pronto!");
-    } else if (phase === 'HOLD' && !isHoldingClick) {
-        failBreath("¡Debías seguir manteniendo!");
-    } else if (phase === 'EXHALE' && isHoldingClick) {
-        // En EXHALE, soltar inmediatamente es la acción correcta. Si sigues presionando, es un error.
-        // Pero el fallo aquí ocurre si presionas ANTES de la transición de fase (Exhale).
-        // La lógica del fallo por presionar durante EXHALE se maneja al final de la fase (timer <= 0)
-        // para dar al jugador el ciclo completo.
+    // Lógica de fallo (NO ejecutar durante la espera)
+    if (phase !== 'WAIT') {
+        if (phase === 'INHALE' && !isHoldingClick && timer < (BREATH_PHASES.INHALE.duration - 100)) { // Pequeño margen
+        if (phase === 'INHALE' && !isHoldingClick && timer < (BREATH_PHASES.INHALE.duration - 500)) {
+             failBreath("¡Soltaste demasiado pronto!");
+            return; // CORRECCIÓN: Detener el loop de este frame
+        } else if (phase === 'HOLD' && !isHoldingClick) {
+            failBreath("¡Debías seguir manteniendo!");
+            return; // CORRECCIÓN: Detener el loop de este frame
+        // CORRECCIÓN: Tolerancia aumentada y simétrica de 500ms
+        } else if (phase === 'EXHALE' && isHoldingClick && timer < (BREATH_PHASES.EXHALE.duration - 500)) {
+            failBreath("¡Debías soltar!");
+            return; // CORRECCIÓN: Detener el loop de este frame
+        }
+    }
     }
 
     // Transición de fases
@@ -1136,34 +1288,103 @@ function breathingGameLoop(now) {
 }
 
 function failBreath(reason) {
-    if (!minigame.isActive) return;
+    // CORRECCIÓN: Evitar fallos múltiples
+    if (!minigame.isActive || minigame.isFailing) return;
     
-    playAudio('estatica', 1);
+    minigame.isFailing = true; // Pausar el loop
+    // CORRECCIÓN: No reproducir estática aquí
+    // playAudio('estatica', 1); 
     addNotification(reason, 'danger');
     minigame.failures++;
+    // GUARDAR FALLOS
+    GAME_STATE.flags.tranquiOsoFails = minigame.failures;
     dom.breathFails.textContent = minigame.failures;
+    saveGame();
     
     if (minigame.failures >= FAILS_TO_LOSE) {
         endBreathingMinigame(false); // Fracaso
     } else {
-        // Reiniciar ciclo
-        setBreathPhase('WAIT');
+        // Reiniciar ciclo DESPUÉS de una pausa
+        setTimeout(() => {
+            if (minigame.isActive) { // Comprobar si el modal sigue abierto
+                setBreathPhase('WAIT');
+                minigame.isFailing = false; // Reanudar el loop
+            }
+        }, 1000); // 1 segundo de pausa
     }
 }
 
 function succeedBreath() {
-    if (!minigame.isActive) return;
+    // CORRECCIÓN: Evitar múltiples éxitos
+    if (!minigame.isActive || minigame.isFailing) return;
 
+    minigame.isFailing = true; // Pausar el loop
     minigame.breaths++;
+    // GUARDAR FALLOS (Resetear al ganar)
+    GAME_STATE.flags.tranquiOsoFails = 0;
+    // CORRECCIÓN: Cancelar el cooldown de 1 minuto si ganas
+    GAME_STATE.flags.tranquiOsoFailResetCooldown = 0;
+    saveGame();
     dom.breathCount.textContent = minigame.breaths;
     
     if (minigame.breaths >= BREATHS_TO_WIN) {
-        endBreathingMinigame(true); // Éxito
+        // CORRECCIÓN: No llamar a endBreathingMinigame, llamar a la lógica de "Volver a Intentar"
+        // endBreathingMinigame(true); // Éxito
+        handleMinigameSuccess();
     } else {
-        // Iniciar siguiente respiración
-        setBreathPhase('WAIT');
+        // Iniciar siguiente respiración DESPUÉS de una pausa
+        setTimeout(() => {
+            if (minigame.isActive) { // Comprobar si el modal sigue abierto
+                setBreathPhase('WAIT');
+                minigame.isFailing = false; // Reanudar el loop
+            }
+        }, 1000); // 1 segundo de pausa
     }
 }
+
+/** NUEVA FUNCIÓN: Maneja el éxito (3/3) y muestra el botón de reintentar */
+function handleMinigameSuccess() {
+    // 1. Aplicar recompensas (se puede llamar varias veces)
+    addNotification("Respiras profundamente... El pánico retrocede.", "item");
+    if (getState().player.fear >= 40) {
+        updatePlayerState('fear', -25);
+    }
+    if (getState().rulo.fear >= 40) {
+        updateRuloState('fear', -25);
+    }
+    
+    // 2. Comprobar si se necesita de nuevo
+    if (getState().player.fear >= 40 || getState().rulo.fear >= 40) {
+        // Sí, mostrar botón de reintentar
+        dom.minigameInstructions.innerHTML = '<button id="minigame-restart-btn" class="ui-btn" style="font-size: 1.2rem;">Volver a Intentar</button>';
+        
+        document.getElementById('minigame-restart-btn').onclick = () => {
+            // Reiniciar contadores para la siguiente ronda
+            minigame.breaths = 0;
+            dom.breathCount.textContent = 0;
+            // (Los fallos ya están en 0)
+            
+            // Quitar botón y volver a la pausa
+            dom.minigameInstructions.textContent = '...';
+            minigame.isFailing = true; // Pausar
+            setTimeout(() => {
+                setBreathPhase('WAIT');
+                minigame.isFailing = false; // Reanudar
+            }, 1000);
+        };
+        
+    } else {
+        // No, ya no se necesita. Cerrar.
+        addNotification("Ya estás calmado. El oso descansa.");
+        // Forzar el cierre con éxito
+        endBreathingMinigame(true);
+    }
+
+    // 3. Resetear contadores de cualquier modo (para el botón o para cerrar)
+    minigame.breaths = 0;
+    dom.breathCount.textContent = 0;
+}
+
 
 function endBreathingMinigame(success, manualClose = false) {
     if (!minigame.isActive) return;
@@ -1190,10 +1411,39 @@ function endBreathingMinigame(success, manualClose = false) {
     
     if (success) {
         addNotification("Respiras profundamente... El pánico retrocede.", "item");
-        updatePlayerState('fear', -25); // Recompensa aumentada
+        
+        // CORRECCIÓN: Resetear fallos al tener éxito
+        GAME_STATE.flags.tranquiOsoFails = 0;
+
+        // NUEVO: Reducir miedo solo si es necesario
+        if (getState().player.fear >= 40) {
+            updatePlayerState('fear', -25);
+        }
+        if (getState().rulo.fear >= 40) {
+            updateRuloState('fear', -25);
+        }
+        
+        saveGame();
+        
     } else {
-        addNotification("¡No puedes! ¡No puedes calmarte! El oso emite una leve estática...", "danger");
-        updatePlayerState('fear', 10);
-        playAudio('estatica', 3); // Reproduce 3s de estática
+        // CORRECCIÓN: Solo aplicar lógica de fallo si NO es un cierre manual
+        if (!manualClose) { 
+            addNotification("¡No puedes! ¡No puedes calmarte! El oso emite una leve estática...", "danger");
+            
+            // Penalización de miedo solo si fallaste
+            if (minigame.failures >= FAILS_TO_LOSE) {
+                 updatePlayerState('fear', 10);
+                
+                // NUEVO: Iniciar Cooldown
+                const rates = getOsoCooldownRates();
+                const difficulty = getGameDifficulty();
+                const cooldownMs = rates[difficulty] || rates['normal'];
+                GAME_STATE.flags.tranquiOsoCooldown = Date.now() + cooldownMs;
+                addNotification(`Tranqui-Oso está agotado. Necesita recargarse por ${Math.ceil(cooldownMs / 60000)} minutos.`, 'danger');
+                
+                playAudio('estatica', 3); // CORRECCIÓN: Reproducir estática solo en 2/2
+            }
+            saveGame(); // Guardar el estado (cooldown o fallos)
+        }
     }
 }

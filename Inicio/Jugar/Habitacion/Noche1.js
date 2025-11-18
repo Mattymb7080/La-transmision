@@ -134,7 +134,7 @@ async function startNight1_Intro() {
 // --- MANEJADORES DE ELECCIONES INICIALES ---
 
 async function handleChoiceObserve() {
-    await Game.addDialogue("Miras a tu alrededor. Es un cuarto de hospital viejo. El papel tapiz se está pelando. Ves una mesita de noche junto a tu cama y un armario metálico en la esquina. La figura en la otra cama no se mueve.", "Tú");
+    await Game.addDialogue("Miras a tu alrededor. Es un cuarto de hospital viejo. El papel tapiz se está pelando. Ves una mesita de noche junto a tu cama y un armario metálico en la esquina. La figura en la otra cama no se mueve.", "Sistema");
     await startRuloDialogue();
 }
 
@@ -224,15 +224,23 @@ function displaySearchOptions() {
     let searchesLeft = 0;
     
     if (searchState.nightstand) {
-        Game.addChoice("Revisar la Mesita de Noche", searchNightstand);
+        Game.addChoice("Revisar Mesita de Noche", searchNightstand);
         searchesLeft++;
     }
-    if (searchState.wardrobe) {
-        Game.addChoice("Revisar el Armario Metálico", searchWardrobe);
-        searchesLeft++;
+    
+    // --- LÓGICA DE COOLDOWN DE LOOT (ARMARIO) ---
+    const lootCooldown = Game.getFlag('wardrobe_cooldown') || 0;
+    if (Date.now() > lootCooldown) {
+        Game.addChoice("Revisar Armario Metálico", searchWardrobe);
+        searchState.wardrobe = true; // Habilitar búsqueda
+    } else {
+        searchState.wardrobe = false; // Deshabilitar
     }
+    if (searchState.wardrobe) searchesLeft++; // Contar solo si está disponible
+    // --- FIN LÓGICA DE COOLDOWN ---
+
     if (searchState.underBeds) {
-        Game.addChoice("Revisar debajo de las Camillas", searchUnderBeds);
+        Game.addChoice("Revisar bajo Camillas", searchUnderBeds);
         searchesLeft++;
     }
     // Habilitar la ventana solo después del evento
@@ -254,11 +262,12 @@ function displaySearchOptions() {
 }
 
 async function searchNightstand() {
+    // CORRECCIÓN DUPE: Establecer flag PRIMERO para evitar exploits de recarga
     searchState.nightstand = false;
     Game.setFlag('search_nightstand', false); // Guardar estado de búsqueda
-    
+
     await Game.addDialogue("Hurgas en el cajón superior de la mesita. Tus dedos tocan metal frío y papel.", "Sistema");
-    
+
     Game.addItem('keyItems', { id: 'flashlight', name: 'Linterna', energy: 15 });
     Game.addItem('notes', NOTAS.nota1);
     Game.setFlag('note1_found', true); // CORRECCIÓN: Marcar que se encontró la nota 1
@@ -383,12 +392,13 @@ async function creatureLeaves() {
 }
 
 async function searchUnderBeds() {
+    // CORRECCIÓN DUPE: Establecer flag PRIMERO
     searchState.underBeds = false;
     Game.setFlag('search_underBeds', false); // Guardar estado
-    
+
     await Game.addDialogue("Deciden revisar bajo las camas. Rulo alumbra el suelo polvoriento.", "Sistema");
     await Game.addDialogue("¡Espera! ¡Ahí!", "Rulo");
-    
+
     Game.addItem('notes', NOTAS.nota2);
     Game.addItem('consumables', { id: 'battery_spent', name: 'Baterías Gastadas', stack: 1, restore: 20 });
     Game.addItem('minigames', { id: 'tranqui_oso', name: 'Tranqui-Oso', description: "Un viejo oso de peluche. Te calma." });
@@ -419,44 +429,67 @@ async function searchUnderBeds() {
 }
 
 async function searchWardrobe() {
-    searchState.wardrobe = false;
-    Game.setFlag('search_wardrobe', false); // Guardar estado
-    
+    // --- CORRECCIÓN DUPE: Iniciar Cooldown de Loot INMEDIATAMENTE ---
+    // CORRECCIÓN ERROR: Usar Game.getLootCooldownRates y Game.getDifficulty
+    const rates = Game.getLootCooldownRates();
+    // CORRECCIÓN ERROR: Renombrada a getGameDifficulty()
+    const difficulty = Game.getGameDifficulty();
+    const cooldownMs = rates[difficulty] || rates['normal'];
+    Game.setFlag('wardrobe_cooldown', Date.now() + cooldownMs);
+
     await Game.addDialogue("Rulo te alumbra mientras abres el armario metálico. Chirría ruidosamente.", "Sistema");
     Game.updatePlayerState('fear', 5);
     Game.addNotification("Miedo +5", "danger");
     await Game.addDialogue("Dentro hay una caja de cartón con la etiqueta 'Efectos Personales'.", "Sistema");
     await Game.addDialogue("[Sistema: Saqueo de Caja (Obtendrás 3 items al azar)]", "Sistema");
-    
-    // Simulación de 3 items
+
+    let itemsFoundNames = [];
     for (let i = 0; i < 3; i++) {
         await Game.wait(500);
         let roll = Math.random();
-        
+        let foundItem = null;
+
         if (roll <= 0.15) {
-            Game.addItem('consumables', { id: 'pills', name: 'Píldoras "Calmantes"', stack: 1, restore: -30 });
+            foundItem = { id: 'pills', name: 'Píldoras "Calmantes"', stack: 1, restore: -30 };
         } else if (roll <= 0.30) {
-            Game.addItem('consumables', { id: 'bandage', name: 'Venda Sucia', stack: 1, restore: 10 });
+            foundItem = { id: 'bandage', name: 'Venda Sucia', stack: 1, restore: 10 };
         } else if (roll <= 0.40) {
-            Game.addItem('consumables', { id: 'battery_spent', name: 'Baterías Gastadas', stack: 2, restore: 20 });
+            foundItem = { id: 'battery_spent', name: 'Baterías Gastadas', stack: 2, restore: 20 };
         } else if (roll <= 0.50) {
-            Game.addItem('consumables', { id: 'cereal', name: 'Barra de Cereal Rancia', stack: 1, restore: 20 });
+            foundItem = { id: 'cereal', name: 'Barra de Cereal Rancia', stack: 1, restore: 20 };
         } else if (roll <= 0.60) {
-            Game.addItem('consumables', { id: 'water', name: 'Agua Embotellada', stack: 1, restore: 30 });
-        } else {
-            await Game.addDialogue("...polvo y pelusa.", "Sistema");
+            foundItem = { id: 'water', name: 'Agua Embotellada', stack: 1, restore: 30 };
+        }
+
+        if (foundItem) {
+            Game.addItem('consumables', foundItem);
+            itemsFoundNames.push(foundItem.name);
+            // NUEVO: Mostrar loot en el diálogo
+            await Game.addDialogue(`...encontraste ${foundItem.name}.`, "Sistema");
         }
     }
 
-    await Game.wait(500);
+    if (itemsFoundNames.length === 0) {
+        // Si no se encontró nada en los 3 intentos
+        await Game.addDialogue("...polvo y pelusa.", "Sistema");
+        // Garantizar 1 item si no se encontró nada
+        let guaranteedItem = { id: 'water', name: 'Agua Embotellada', stack: 1, restore: 30 };
+        Game.addItem('consumables', guaranteedItem);
+        await Game.addDialogue(`...pero lograste rescatar ${guaranteedItem.name}.`, "Sistema");
+    }
+
+    await Game.addDialogue(`[Sistema: El armario está vacío. Quizás se reponga en ${Math.ceil(cooldownMs / 60000)} min.]`, "Sistema");
+
     displaySearchOptions();
 }
 
 /** NUEVA FUNCION: Hablar con Rulo */
 async function handleTalkToRulo() {
-    const ruloFear = Game.getFlag('rulo_fear') || 15; // Usar el estado real de Rulo
-    const ruloThirst = Game.getFlag('rulo_thirst') || 45;
-    const ruloHunger = Game.getFlag('rulo_hunger') || 55;
+    // CORRECCIÓN: Usar Game.getState() para leer el estado real
+    const currentState = Game.getState();
+    const ruloFear = currentState.rulo.fear;
+    const ruloThirst = currentState.rulo.thirst;
+    const ruloHunger = currentState.rulo.hunger;
     
     let roll = Math.random();
     
@@ -491,6 +524,14 @@ async function handleTalkToRulo() {
         await Game.addDialogue("'Me rugen las tripas... ¿cuánto tiempo llevamos aquí?'", "Rulo");
     }
 
+    // --- NUEVO: Reducir Cooldown de Tranqui-Oso ---
+    if (Game.getFlag('tranquiOsoCooldown') > Date.now()) {
+        const reduction = 15000; // 15 segundos
+        let newCooldown = Game.getFlag('tranquiOsoCooldown') - reduction;
+        Game.setFlag('tranquiOsoCooldown', newCooldown);
+        Game.addNotification(`Hablar con Rulo calmó un poco al oso. (Cooldown -15s)`, 'info');
+    }
+
     await Game.wait(500);
     displaySearchOptions(); // Volver a las opciones
 }
@@ -508,8 +549,8 @@ async function startExitSequence() {
     
     await Promise.race([batteryPromise, timeoutPromise]);
     
-    // Comprobar si realmente la usó (viendo la energía de Rulo)
-    const ruloEnergy = Game.getFlag('rulo_energy') || 0; // Usar el estado real
+    // CORRECCIÓN: Usar Game.getState() para leer la energía real
+    const ruloEnergy = Game.getState().rulo.energy;
     if (ruloEnergy > 15) { // Si tiene más de la energía inicial
         await Game.addDialogue("La luz de la linterna se estabiliza. Mucho mejor.", "Sistema");
     } else {
@@ -543,8 +584,9 @@ async function handleExitBash() {
 }
 async function handleExitSneak() {
     await Game.addDialogue("Abres la puerta con cuidado. El pasillo está oscuro. Rulo alumbra. Ven un rastro húmedo y oscuro que se aleja hacia... las escaleras del Piso 11.", "Sistema");
-    Game.setLocation("Pasillo Piso 12");
     await Game.wait(1000);
+    // CORRECCIÓN BUG: La ubicación solo debe cambiar cuando se cargue el nuevo nivel.
+    // Game.setLocation("Pasillo Piso 12"); // <-- LÍNEA ELIMINADA
     await Game.addDialogue("Ahí... al final del pasillo. Las escaleras. Vamos... despacio.", "Rulo");
     await Game.addDialogue("[Sistema: El camino al pasillo está abierto.]", "Sistema");
 }
