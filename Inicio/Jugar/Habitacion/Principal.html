@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-AR">
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>La Transmisión - Noche 1</title>
     <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
@@ -39,12 +39,12 @@
         <main id="middle-panel">
             <div id="main-content">
                 <div id="dialogue-window">
-                    </div>
+                </div>
                 <div id="choice-window">
-                    </div>
+                </div>
             </div>
             <aside id="notification-panel">
-                </aside>
+            </aside>
         </main>
 
         <footer id="bottom-panel">
@@ -95,11 +95,12 @@
         </div>
     </div>
     
-    <div id="player-status-modal" class="modal hidden">
+    <!-- MODAL UNIFICADO DE ESTADO -->
+    <div id="status-modal" class="modal hidden">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>TU ESTADO</h2>
-                <button class="close-btn" data-modal-id="player-status-modal">X</button>
+                <h2>ESTADO</h2>
+                <button class="close-btn" data-modal-id="status-modal">X</button>
             </div>
             <div class="modal-body">
                 
@@ -122,19 +123,7 @@
                     </div>
                     <p class="stat-condition-description" id="player-condition-description">Sin efectos negativos.</p>
                 </div>
-                
-            </div>
-        </div>
-    </div>
-    
-    <div id="rulo-status-modal" class="modal hidden">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>ESTADO DE RULO</h2>
-                <button class="close-btn" data-modal-id="rulo-status-modal">X</button>
-            </div>
-            <div class="modal-body">
-                
+
                 <div id="rulo-stats-display" class="stat-block">
                     <h3>RULO</h3>
                     <div class="stat-row">
@@ -164,7 +153,41 @@
                     </div>
                     <p class="stat-condition-description" id="rulo-condition-description">Sin efectos negativos.</p>
                 </div>
-                
+
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL DE PAUSA -->
+    <div id="pause-modal" class="modal hidden">
+        <div class="modal-content" style="width: 400px; text-align: center;">
+            <div class="modal-header">
+                <h2>PAUSA</h2>
+            </div>
+            <div class="modal-body" style="padding: 20px;">
+                <button id="pause-resume-btn" class="menu-button">Reanudar</button>
+                <button id="pause-settings-btn" class="menu-button">Ajustes</button>
+                <button id="pause-menu-btn" class="menu-button button-danger">Menú Principal</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL DE AJUSTES -->
+    <div id="settings-modal" class="modal hidden">
+        <div class="modal-content" style="width: 400px; text-align: center;">
+            <div class="modal-header">
+                <h2>AJUSTES</h2>
+                <button class="close-btn" data-modal-id="settings-modal">X</button>
+            </div>
+            <div class="modal-body" style="padding: 20px;">
+                <select id="game-theme-select" class="menu-select">
+                    <option value="verde-crt">VERDE CRT</option>
+                    <option value="ambar">ÁMBAR</option>
+                    <option value="azul">AZUL</option>
+                    <option value="blanco">BLANCO</option>
+                    <option value="negro">NEGRO</option>
+                </select>
+                <button id="settings-back-btn" class="menu-button">Volver</button>
             </div>
         </div>
     </div>

@@ -6,6 +6,11 @@
     --hover-bg: #00FF00;
     --hover-text: #000000;
     --danger-color: #FF0000;
+
+    /* NUEVO: Variables para botones de peligro */
+    --danger-border: #FF0000;
+    --danger-hover-bg: #FF0000;
+    --danger-hover-text: #000000;
     
     /* Colores de estado */
     --health-color: #22c55e;
@@ -317,6 +322,50 @@ body, html {
 .ui-btn:hover {
     background-color: var(--hover-bg);
     color: var(--hover-text);
+}
+
+/* --- NUEVO: Estilos de Botones de Menú --- */
+.menu-button, .menu-select {
+    font-family: 'VT323', monospace;
+    background-color: var(--background-secondary);
+    border: 2px solid var(--primary-color);
+    color: var(--primary-color);
+    padding: 15px 30px;
+    font-size: 1.5rem;
+    margin: 10px auto;
+    width: 300px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: block;
+    box-sizing: border-box;
+}
+.menu-select {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--primary-color) 50%), linear-gradient(135deg, var(--primary-color) 50%, transparent 50%);
+    background-position: calc(100% - 20px) center, calc(100% - 15px) center;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+}
+.menu-select:hover {
+    background-color: var(--hover-bg);
+    color: var(--hover-text);
+    box-shadow: 0 0 20px var(--primary-color);
+}
+.menu-button:hover {
+    background-color: var(--hover-bg);
+    color: var(--hover-text);
+    text-shadow: none;
+    box-shadow: 0 0 20px var(--primary-color);
+}
+.button-danger {
+    border-color: var(--danger-border);
+    color: var(--danger-color);
+}
+.button-danger:hover {
+    background-color: var(--danger-hover-bg);
+    color: var(--danger-hover-text);
 }
 
 /* --- Estilos de Modales --- */

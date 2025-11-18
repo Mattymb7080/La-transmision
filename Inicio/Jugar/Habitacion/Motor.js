@@ -4,7 +4,7 @@
  */
 
 // IMPORTAMOS LA DIFICULTAD
-import { getTheme, THEME_PALETTES, getDifficulty } from '../../settings-manager.js';
+import { getTheme, setTheme, THEME_PALETTES, getDifficulty } from '../../settings-manager.js';
 
 // --- CONSTANTES ---
 const TYPING_SPEED_MS = 38;
@@ -80,7 +80,8 @@ let minigame = {
     loop: null // Para guardar el setInterval/requestAnimationFrame
 };
 
-// --- CACHÉ DE AUDIO ---
+// --- CACHÉ DE AUDIO (Ejemplo) ---
+// (Se expandirá en el futuro)
 let audioCache = {
     estatica: new Audio('../../Assets/Audios/Estatica.mp3')
 };
@@ -114,7 +115,10 @@ export function init() {
         
         // Modales
         modals: document.querySelectorAll('.modal'),
+        pauseModal: document.getElementById('pause-modal'),      // NUEVO
+        settingsModal: document.getElementById('settings-modal'),    // NUEVO
         inventoryModal: document.getElementById('inventory-modal'),
+        // CORRECCIÓN: Apuntar al ID unificado
         statusModal: document.getElementById('status-modal'),
         noteReaderModal: document.getElementById('note-reader-modal'),
         minigameModal: document.getElementById('minigame-modal'), // Minijuego
@@ -132,6 +136,15 @@ export function init() {
             notes: document.getElementById('tab-notes'),
             minigames: document.getElementById('tab-minigames')
         },
+        // Contenido Menú Pausa/Ajustes
+        pauseResumeBtn: document.getElementById('pause-resume-btn'),
+        pauseSettingsBtn: document.getElementById('pause-settings-btn'),
+        pauseMenuBtn: document.getElementById('pause-menu-btn'),
+        gameThemeSelect: document.getElementById('game-theme-select'),
+        settingsBackBtn: document.getElementById('settings-back-btn'),
+
+
+        // Contenido Lector de Notas
         tabLinks: document.querySelectorAll('.tab-link'),
         noteTitle: document.getElementById('note-title'),
         noteContent: document.getElementById('note-content'),
@@ -176,7 +189,11 @@ export function init() {
         }
     };
 
-    applyTheme(getTheme() || 'verde-crt');
+    // CORRECCIÓN: Aplicar tema al iniciar
+    applyTheme(getTheme());
+    // Sincronizar el nuevo desplegable de ajustes
+    populateThemeSelect();
+
     setupModalListeners();
     setupInventoryTabListeners();
     setupGlobalKeyListener();
@@ -191,6 +208,20 @@ function loadDifficulty() {
     GAME_SETTINGS.DRAIN_RATES.difficulty = GAME_STATE.difficulty; // Actualiza el objeto de settings
     console.log('Dificultad cargada:', GAME_STATE.difficulty);
 }
+
+/** NUEVO: Popula el desplegable de temas */
+function populateThemeSelect() {
+    dom.gameThemeSelect.innerHTML = ''; // Limpiar
+    for (const key in THEME_PALETTES) {
+        const option = document.createElement('option');
+        option.value = key;
+        // Capitalizar y reemplazar guiones
+        option.textContent = key.replace(/-/g, ' ').toUpperCase();
+        dom.gameThemeSelect.appendChild(option);
+    }
+    dom.gameThemeSelect.value = getTheme();
+}
+
 
 /** Configura los listeners para todos los modales y atajos */
 function setupModalListeners() {
@@ -211,6 +242,25 @@ function setupModalListeners() {
         dom.ruloStats.display.classList.remove('hidden');
         showModal(dom.statusModal);
     });
+
+    // --- NUEVO: Listeners Menú Pausa ---
+    dom.pauseResumeBtn.addEventListener('click', () => hideModal(dom.pauseModal));
+    dom.pauseMenuBtn.addEventListener('click', () => {
+        // Forzar guardado antes de salir
+        saveGame();
+        window.location.href = '../../Inicio.html';
+    });
+    dom.pauseSettingsBtn.addEventListener('click', () => {
+        hideModal(dom.pauseModal);
+        showModal(dom.settingsModal);
+    });
+    
+    // --- NUEVO: Listeners Menú Ajustes (En Juego) ---
+    dom.settingsBackBtn.addEventListener('click', () => {
+        hideModal(dom.settingsModal);
+        showModal(dom.pauseModal);
+    });
+    dom.gameThemeSelect.addEventListener('change', (e) => applyTheme(e.target.value));
 
     // Botones de Cierre de Modal
     document.querySelectorAll('.close-btn').forEach(btn => {
@@ -260,20 +310,28 @@ function setupInventoryTabListeners() {
 /** Configura el listener global de teclado (ESC, I, E) */
 function setupGlobalKeyListener() {
     document.addEventListener('keydown', (e) => {
+        // --- Lógica de ESCAPE (Pausa) MEJORADA ---
         if (e.key === 'Escape') {
             e.preventDefault();
-            if (activeModal) {
-                // Simula el clic en el botón de cierre del modal activo
-                const closeBtn = activeModal.querySelector('.close-btn');
-                if (closeBtn) {
-                    closeBtn.click();
-                } else {
-                    hideModal(activeModal); // Fallback
-                }
+
+            if (minigame.isActive) {
+                endBreathingMinigame(false, true); // Salir del minijuego
+            } else if (activeModal === dom.settingsModal) {
+                dom.settingsBackBtn.click(); // Volver a Pausa
+            } else if (activeModal === dom.pauseModal) {
+                dom.pauseResumeBtn.click(); // Reanudar juego
+            } else if (activeModal) {
+                // Si hay CUALQUIER otro modal abierto (inventario, notas), ciérralo.
+                hideModal(activeModal);
             } else {
-                dom.menuBtn.click(); // Simula clic en el botón de menú
+                // Si no hay ningún modal, abrir Pausa
+                showModal(dom.pauseModal);
             }
+            return; // No procesar otras teclas si fue ESC
         }
+        
+        // No permitir atajos si el menú de pausa está activo
+        if (activeModal === dom.pauseModal || activeModal === dom.settingsModal) return; 
         
         // CORREGIDO: Comprobar si el overlay de nombre está activo
         if (!dom.nameOverlay.classList.contains('hidden')) return;
@@ -704,7 +762,13 @@ function hideModal(modalElement) {
     activeModal = null;
 }
 
+/**
+ * Aplica un tema cambiando el atributo data-theme y las variables CSS
+ * (Copiado de Logica.js para uso interno del motor)
+ * @param {string} themeName (ej. 'verde-crt', 'ambar')
+ */
 function applyTheme(themeName) {
+    setTheme(themeName); // Guardar la preferencia
     document.body.dataset.theme = themeName;
     const palette = THEME_PALETTES[themeName];
     const root = document.documentElement;
@@ -954,7 +1018,18 @@ function startBreathingMinigame() {
         timer: 0,
         breaths: 0,
         failures: 0,
-        loop: null
+        loop: null,
+        // NUEVO: Handlers de Teclado
+        spacebarDown: (e) => {
+            if (e.key === ' ' && !e.repeat) {  
+                isHoldingClick = true; e.preventDefault(); 
+            }
+        },
+        spacebarUp: (e) => {
+            if (e.key === ' ') { 
+                isHoldingClick = false; e.preventDefault(); 
+            }
+        }
     };
     
     isHoldingClick = false;
@@ -971,6 +1046,10 @@ function startBreathingMinigame() {
     dom.minigameContent.onmouseup = () => { isHoldingClick = false; };
     dom.minigameContent.ontouchstart = (e) => { e.preventDefault(); isHoldingClick = true; };
     dom.minigameContent.ontouchend = (e) => { e.preventDefault(); isHoldingClick = false; };
+    
+    // NUEVO: Listeners de barra espaciadora
+    document.addEventListener('keydown', minigame.spacebarDown);
+    document.addEventListener('keyup', minigame.spacebarUp);
 
     // Botón para empezar
     dom.minigameStartBtn.onclick = () => {
@@ -1020,7 +1099,10 @@ function breathingGameLoop(now) {
     } else if (phase === 'HOLD' && !isHoldingClick) {
         failBreath("¡Debías seguir manteniendo!");
     } else if (phase === 'EXHALE' && isHoldingClick) {
-        failBreath("¡Debías soltar!");
+        // En EXHALE, soltar inmediatamente es la acción correcta. Si sigues presionando, es un error.
+        // Pero el fallo aquí ocurre si presionas ANTES de la transición de fase (Exhale).
+        // La lógica del fallo por presionar durante EXHALE se maneja al final de la fase (timer <= 0)
+        // para dar al jugador el ciclo completo.
     }
 
     // Transición de fases
@@ -1032,11 +1114,18 @@ function breathingGameLoop(now) {
             case 'HOLD':
                 setBreathPhase('EXHALE');
                 break;
-            case 'EXHALE':
-                succeedBreath();
-                break;
             case 'WAIT':
                 setBreathPhase('INHALE');
+                break;
+            // --- CORRECCIÓN LÓGICA ---
+            // La transición de EXHALE solo ocurre si el timer llega a 0
+            case 'EXHALE':
+                // Si el timer llega a 0 Y AÚN ESTÁS PRESIONANDO, fallas.
+                if (isHoldingClick) {
+                    failBreath("¡Mantuviste presionado demasiado tiempo!");
+                } else {
+                    succeedBreath(); // Si no, éxito.
+                }
                 break;
         }
     }
@@ -1088,6 +1177,12 @@ function endBreathingMinigame(success, manualClose = false) {
     dom.minigameContent.ontouchstart = null;
     dom.minigameContent.ontouchend = null;
     dom.minigameStartBtn.onclick = null;
+    
+    // NUEVO: Limpiar listeners de teclado
+    document.removeEventListener('keydown', minigame.spacebarDown);
+    document.removeEventListener('keyup', minigame.spacebarUp);
+    minigame.spacebarDown = null;
+    minigame.spacebarUp = null;
     
     if (!manualClose) {
         hideModal(dom.minigameModal);
