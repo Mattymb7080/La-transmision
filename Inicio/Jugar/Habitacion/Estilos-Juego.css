@@ -543,7 +543,12 @@ body, html {
 #minigame-instructions {
     opacity: 0.7;
     font-style: italic;
-    height: 2.5em; /* Espacio reservado para 2 líneas */
+    height: 2.5em; 
+    /* NUEVO: Centrar botones */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 15px;
 }
 
 .minigame-stats {

@@ -85,6 +85,14 @@ let GAME_STATE = {
 // --- REFERENCIAS AL DOM ---
 let dom = {};
 let activeModal = null;
+ 
+// --- UTILIDAD DE SEGURIDAD (Evita bloqueos si faltan elementos) ---
+const safeAddListener = (element, event, handler) => {
+    if (element) {
+        element.addEventListener(event, handler);
+    }
+};
+
 
 // --- ESTADO DEL TYPING ---
 let isTyping = false;
@@ -92,6 +100,9 @@ let forceSkipTyping = false;
 // --- NUEVO: Estado para Omitir Diálogo de Sistema ---
 let isWaitingOnSystem = false;
 let systemWaitResolver = null;
+// --- NUEVO: Variables de Pausa ---
+let isGamePaused = false;
+let pauseStartTime = 0;
 
 
 // --- ESTADO DEL MINIJUEGO ---
@@ -116,8 +127,22 @@ let itemUseResolvers = {}; // Para esperar a que se use un item
 // --- FUNCIONES DE INICIALIZACIÓN ---
 
 export function init() {
-    loadGame();
-    loadDifficulty(); // Carga la dificultad y la aplica a GAME_SETTINGS
+    try {
+        // --- MEDIDA DE SEGURIDAD: Verificación de Integridad ---
+        // Verificamos que las funciones críticas existan antes de continuar.
+        if (typeof saveGame !== 'function') console.error("ERROR CRÍTICO: 'saveGame' no está definida.");
+        if (typeof renderInventory !== 'function') console.error("ERROR CRÍTICO: 'renderInventory' no está definida.");
+
+        loadGame();
+        loadDifficulty();
+        
+        // NUEVO: Iniciar el "latido" de la UI (para actualizar cooldowns en vivo)
+        setInterval(updateCooldownUI, 1000);
+    } catch (error) {
+        console.error("Error fatal durante la inicialización del juego:", error);
+        addNotification("Error de Sistema: Reinicia el juego.", "danger");
+        return;
+    }
 
     dom = {
         gameContainer: document.getElementById('game-container'),
@@ -255,46 +280,50 @@ function populateThemeSelect() {
 /** Configura los listeners para todos los modales y atajos */
 function setupModalListeners() {
     // Botón de Inventario
-    dom.inventoryBtn.addEventListener('click', () => showModal(dom.inventoryModal));
+    safeAddListener(dom.inventoryBtn, 'click', () => showModal(dom.inventoryModal));
     
-    // BOTONES DE ESTADO (ACTUALIZADO - AHORA INDIVIDUALES)
-    dom.playerStatusBtn.addEventListener('click', () => {
+    // BOTONES DE ESTADO
+    safeAddListener(dom.playerStatusBtn, 'click', () => {
         // Muestra jugador, oculta rulo
-        dom.playerStats.display.classList.remove('hidden');
-        dom.ruloStats.display.classList.add('hidden');
+        if (dom.playerStats && dom.playerStats.display) dom.playerStats.display.classList.remove('hidden');
+        if (dom.ruloStats && dom.ruloStats.display) dom.ruloStats.display.classList.add('hidden');
         showModal(dom.statusModal);
     });
     
-    dom.ruloStatusBtn.addEventListener('click', () => {
+    safeAddListener(dom.ruloStatusBtn, 'click', () => {
         // Muestra rulo, oculta jugador
-        dom.playerStats.display.classList.add('hidden');
-        dom.ruloStats.display.classList.remove('hidden');
+        if (dom.playerStats && dom.playerStats.display) dom.playerStats.display.classList.add('hidden');
+        if (dom.ruloStats && dom.ruloStats.display) dom.ruloStats.display.classList.remove('hidden');
         showModal(dom.statusModal);
     });
 
-    // --- NUEVO: Listeners Menú Pausa ---
-    dom.pauseResumeBtn.addEventListener('click', () => hideModal(dom.pauseModal));
-    dom.pauseMenuBtn.addEventListener('click', () => {
+    // --- Listeners Menú Pausa ---
+    safeAddListener(dom.pauseResumeBtn, 'click', () => togglePause(false));
+    
+    safeAddListener(dom.pauseMenuBtn, 'click', () => {
         // Forzar guardado antes de salir
         saveGame();
         window.location.href = '../../Inicio.html';
     });
-    dom.pauseSettingsBtn.addEventListener('click', () => {
+    safeAddListener(dom.pauseSettingsBtn, 'click', () => {
         hideModal(dom.pauseModal);
         showModal(dom.settingsModal);
     });
     
-    // --- NUEVO: Listeners Menú Ajustes (En Juego) ---
-    dom.settingsBackBtn.addEventListener('click', () => {
+    // --- Listeners Menú Ajustes ---
+    safeAddListener(dom.settingsBackBtn, 'click', () => {
         hideModal(dom.settingsModal);
         showModal(dom.pauseModal);
     });
-    dom.gameThemeSelect.addEventListener('change', (e) => applyTheme(e.target.value));
+    safeAddListener(dom.gameThemeSelect, 'change', (e) => applyTheme(e.target.value));
 
     // Botones de Cierre de Modal
     document.querySelectorAll('.close-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const modalToHide = document.getElementById(btn.getAttribute('data-modal-id'));
+        safeAddListener(btn, 'click', () => {
+            const modalId = btn.getAttribute('data-modal-id');
+            const modalToHide = document.getElementById(modalId);
+            
+            if (!modalToHide) return;
             
             // Si el modal tiene una promesa pendiente (como el lector de notas), resuélvela
             if (modalToHide.resolvePromise) {
@@ -313,52 +342,59 @@ function setupModalListeners() {
         });
     });
 
-    // CORRECCIÓN: Botón de Menú (☰) ahora abre la Pausa
-    dom.menuBtn.addEventListener('click', () => {
+    // Botón de Menú (☰)
+    safeAddListener(dom.menuBtn, 'click', () => {
         // Abrir el modal de pausa, igual que ESC
         if (activeModal === dom.pauseModal) {
             hideModal(dom.pauseModal);
-        } else if (!activeModal) { // Solo abrir si no hay otro modal
-            showModal(dom.pauseModal);
+        } else if (!activeModal) { 
+            togglePause(true); // Usar togglePause en lugar de showModal directo
         }
     });
 }
 
 /** Configura listeners para las pestañas del inventario */
 function setupInventoryTabListeners() {
-    dom.tabLinks.forEach(link => {
-        link.addEventListener('click', () => {
-            const tabId = link.getAttribute('data-tab');
-            const parentModal = link.closest('.modal-body');
+    if (dom.tabLinks) {
+        dom.tabLinks.forEach(link => {
+            safeAddListener(link, 'click', () => {
+                const tabId = link.getAttribute('data-tab');
+                const parentModal = link.closest('.modal-body');
+                
+                if (parentModal) {
+                    parentModal.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+                    parentModal.querySelectorAll('.tab-link').forEach(l => l.classList.remove('active'));
+                }
 
-            parentModal.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
-            parentModal.querySelectorAll('.tab-link').forEach(l => l.classList.remove('active'));
-
-            document.getElementById(tabId).classList.add('active');
-            link.classList.add('active');
+                const targetTab = document.getElementById(tabId);
+                if (targetTab) targetTab.classList.add('active');
+                link.classList.add('active');
+            });
         });
-    });
+    }
 }
 
 /** Configura el listener global de teclado (ESC, I, E) */
 function setupGlobalKeyListener() {
+    // document siempre existe, safeAddListener no es estrictamente necesario pero mantiene consistencia
     document.addEventListener('keydown', (e) => {
         // --- Lógica de ESCAPE (Pausa) MEJORADA ---
         if (e.key === 'Escape') {
             e.preventDefault();
 
             if (minigame.isActive) {
-                endBreathingMinigame(false, true); // Salir del minijuego
+                // Si está en minijuego, ESC sale del minijuego (como el botón Salir)
+                if (dom.minigameModal.querySelector('.close-btn')) dom.minigameModal.querySelector('.close-btn').click();
             } else if (activeModal === dom.settingsModal) {
                 dom.settingsBackBtn.click(); // Volver a Pausa
             } else if (activeModal === dom.pauseModal) {
-                dom.pauseResumeBtn.click(); // Reanudar juego
+                togglePause(false); // Reanudar
             } else if (activeModal) {
                 // Si hay CUALQUIER otro modal abierto (inventario, notas), ciérralo.
                 hideModal(activeModal);
             } else {
                 // Si no hay ningún modal, abrir Pausa
-                showModal(dom.pauseModal);
+                togglePause(true); // Pausar
             }
             return; // No procesar otras teclas si fue ESC
         }
@@ -399,16 +435,43 @@ function setupGlobalKeyListener() {
         }
     });
 
-    // Listener para OMITIR DIÁLOGO
-    dom.gameContainer.addEventListener('click', skipTyping);
+    // Listener para OMITIR DIÁLOGO - CORREGIDO
+    safeAddListener(dom.gameContainer, 'click', skipTyping);
 }
 
 
-// --- LOOP PRINCIPAL DEL JUEGO ---
+/** NUEVO: Función Maestra de Pausa */
+function togglePause(shouldPause) {
+    if (shouldPause) {
+        isGamePaused = true;
+        pauseStartTime = Date.now();
+        showModal(dom.pauseModal);
+        // Detener loop del minijuego si estuviera activo (aunque ESC lo cierra, por seguridad)
+        if (minigame.isActive) cancelAnimationFrame(minigame.loop);
+    } else {
+        // REANUDAR
+        hideModal(dom.pauseModal);
+        const pauseDuration = Date.now() - pauseStartTime;
+        
+        // --- AJUSTAR COOLDOWNS ---
+        // Empujamos los tiempos objetivo hacia el futuro para compensar la pausa
+        if (GAME_STATE.flags.tranquiOsoCooldown > 0) GAME_STATE.flags.tranquiOsoCooldown += pauseDuration;
+        if (GAME_STATE.flags.wardrobe_cooldown > 0) GAME_STATE.flags.wardrobe_cooldown += pauseDuration;
+        if (GAME_STATE.flags.tranquiOsoFailResetCooldown > 0) GAME_STATE.flags.tranquiOsoFailResetCooldown += pauseDuration;
+        
+        saveGame(); // Guardar los nuevos tiempos ajustados
+        
+        isGamePaused = false;
+        // Si el minijuego estaba activo, habría que reiniciarlo, pero por diseño ESC lo cierra.
+        // Si implementas pausa SIN cerrar minijuegos, aquí reiniciarías el loop.
+    }
+}
 
 /** Inicia el loop principal para manejar drenajes de estado y eventos pasivos */
 function startGameLoop() {
     setInterval(() => {
+        if (isGamePaused) return; // <--- SI ESTÁ PAUSADO, NO HACER NADA
+
         const rates = GAME_SETTINGS.DRAIN_RATES[GAME_SETTINGS.DRAIN_RATES.difficulty];
         
         // 1. Lógica de la Linterna
@@ -436,17 +499,28 @@ function startGameLoop() {
              updateRuloState('thirst', -rates.thirst);
         }
 
+        // 4. Lógica de Cooldown de Fallos (Tranqui-Oso)
+        if (GAME_STATE.flags.tranquiOsoFailResetCooldown > 0 && Date.now() > GAME_STATE.flags.tranquiOsoFailResetCooldown) {
+            GAME_STATE.flags.tranquiOsoFails = 0;
+            GAME_STATE.flags.tranquiOsoFailResetCooldown = 0;
+            saveGame();
+            addNotification("Tranqui-Oso se ha reiniciado.", "info");
+        }
+
     }, GAME_SETTINGS.DRAIN_INTERVAL_MS);
 }
 
-
-// --- FUNCIONES PÚBLICAS DEL MOTOR (Exportadas) ---
-
 /** Oculta la pantalla de carga al inicio del juego */
 export function hideLoadingScreen() {
-    dom.loadingOverlay.classList.add('hidden');
+    if (dom && dom.loadingOverlay) {
+        dom.loadingOverlay.classList.add('hidden');
+    } else {
+        // This can happen if called before init() completes, so we'll wait.
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('loading-overlay').classList.add('hidden');
+        });
+    }
 }
-
 /** Muestra el overlay de "Insertar Nombre" */
 export function promptForName(onConfirm) {
     dom.nameOverlay.classList.remove('hidden', 'fade-out');
@@ -767,7 +841,7 @@ export function wait(ms) {
 
 // --- FUNCIONES PRIVADAS DEL MOTOR ---
 
-function saveGame() {
+export function saveGame() { // <-- AÑADIDO 'export'
     // console.log("Juego Guardado", GAME_STATE); // Descomentar para debug
     localStorage.setItem(SAVE_KEY, JSON.stringify(GAME_STATE));
 }
@@ -824,7 +898,15 @@ function updateAllUI() {
         dom.ruloStats.display.classList.add('hidden');
     }
     
-    renderInventory();
+    // --- MEDIDA DE SEGURIDAD: Ejecución Defensiva ---
+    if (typeof renderInventory === 'function') {
+        renderInventory();
+    } else {
+        console.warn("Advertencia: 'renderInventory' no encontrada al actualizar UI.");
+        // No hay fallback, ya que la función se renombra en este mismo cambio.
+        // Esto previene un error si el script no se carga correctamente.
+    }
+
     dom.locationBar.textContent = GAME_STATE.currentLocation;
 }
 
@@ -901,12 +983,40 @@ function updateFearVignette(fearValue) {
     }
 }
 
+// --- NUEVO: Actualizador de UI en tiempo real ---
+function updateCooldownUI() {
+    if (isGamePaused) return; // No actualizar visualmente si está pausado
+
+    // Si el inventario no está visible, no hacemos nada
+    if (dom.inventoryModal.classList.contains('hidden')) return;
+
+    // Buscar elementos que tengan cooldown activo
+    const cooldownBtns = document.querySelectorAll('[data-cooldown-end]');
+
+    cooldownBtns.forEach(btn => {
+        const endTime = parseInt(btn.getAttribute('data-cooldown-end'));
+        const remaining = Math.ceil((endTime - Date.now()) / 1000);
+
+        if (remaining <= 0) {
+            // El tiempo terminó, refrescar inventario para habilitar botón
+            renderInventory(); 
+        } else {
+            // Actualizar texto en vivo
+            const minutes = Math.floor(remaining / 60);
+            const seconds = (remaining % 60).toString().padStart(2, '0');
+            // Buscamos el span dentro del div padre o actualizamos el botón
+            // En renderInventory, el botón está dentro de un div.
+            // Actualizamos el texto del botón directamente.
+            btn.textContent = `[${minutes}:${seconds}]`;
+        }
+    });
+}
+
 /** Dibuja los items en el inventario y AÑADE LISTENERS */
-function renderInventory() {
-    dom.tabs.consumables.innerHTML = '';
-    dom.tabs.keyItems.innerHTML = '';
-    dom.tabs.notes.innerHTML = '';
-    dom.tabs.minigames.innerHTML = '';
+export function renderInventory() {
+    if (!dom.tabs) return; // Seguridad por si el DOM no cargó
+    
+    Object.values(dom.tabs).forEach(tab => tab.innerHTML = '');
 
     // Consumibles
     GAME_STATE.inventory.consumables.forEach(item => {
@@ -955,18 +1065,14 @@ function renderInventory() {
         playBtn.onclick = () => startMinigame(item); // <-- Lógica de "Minijuego"
         
         if (onCooldown) {
-            playBtn.textContent = 'Recargando...';
-            playBtn.disabled = true;
-            
-            // Añadir temporizador
+            // NUEVO: Texto inicial y atributo de datos para el updateCooldownUI
             const remaining = Math.ceil((GAME_STATE.flags.tranquiOsoCooldown - Date.now()) / 1000);
-            const timerSpan = document.createElement('span');
-            timerSpan.style.opacity = "0.7";
-            timerSpan.style.marginLeft = "10px";
             const minutes = Math.floor(remaining / 60);
             const seconds = (remaining % 60).toString().padStart(2, '0');
-            timerSpan.textContent = `(${minutes}:${seconds})`;
-            div.appendChild(timerSpan);
+            
+            playBtn.textContent = `Recargando (${minutes}:${seconds})...`;
+            playBtn.setAttribute('data-cooldown-end', GAME_STATE.flags.tranquiOsoCooldown);
+            playBtn.disabled = true;
         }
         
         div.appendChild(playBtn);
@@ -1087,18 +1193,27 @@ export function playAudio(audioId, durationInSeconds = 0) {
 /** Inicia la lógica de un minijuego */
 function startMinigame(item) {
     if (item.id === 'tranqui_oso') {
-        // Revisar cooldown
+        // A. Check main cooldown (2/2 fails)
         if (GAME_STATE.flags.tranquiOsoCooldown > Date.now()) {
             const remaining = Math.ceil((GAME_STATE.flags.tranquiOsoCooldown - Date.now()) / 1000);
             const minutes = Math.floor(remaining / 60);
             const seconds = (remaining % 60).toString().padStart(2, '0');
             hideModal(dom.inventoryModal);
-            addNotification(`Tranqui-Oso necesita descansar. (${minutes}:${seconds} restantes)`, 'danger');
+            addNotification(`Tranqui-Oso está agotado. (${minutes}:${seconds} restantes)`, 'danger');
             return;
         }
 
-        // CORRECCIÓN: Cooldown terminado, resetear fallos guardados
-        if (GAME_STATE.flags.tranquiOsoFails > 0) {
+        // B. Check 1-minute reset cooldown (1/2 fails)
+        if (GAME_STATE.flags.tranquiOsoFailResetCooldown > Date.now()) {
+            // Cooldown está activo, lo cancelamos y cargamos los fallos
+            GAME_STATE.flags.tranquiOsoFailResetCooldown = 0; 
+            saveGame();
+            addNotification("Reanudando intento... Cuidado.", "danger");
+            // Los fallos se cargarán en startBreathingMinigame()
+        } else {
+            // C. Sin cooldowns activos.
+            // Si el cooldown de 1 min YA PASÓ, los fallos debieron resetearse
+            // por el startGameLoop(). Si no había cooldown, los reseteamos aquí.
             GAME_STATE.flags.tranquiOsoFails = 0;
             saveGame();
         }
@@ -1242,26 +1357,31 @@ function breathingGameLoop(now) {
     // Lógica de fallo
     // Lógica de fallo (NO ejecutar durante la espera)
     if (phase !== 'WAIT') {
-        if (phase === 'INHALE' && !isHoldingClick && timer < (BREATH_PHASES.INHALE.duration - 100)) { // Pequeño margen
-        if (phase === 'INHALE' && !isHoldingClick && timer < (BREATH_PHASES.INHALE.duration - 500)) {
+        if (phase === 'INHALE' && !isHoldingClick && timer < (BREATH_PHASES.INHALE.duration - 500)) { // Pequeño margen
+        // if (phase === 'INHALE' && !isHoldingClick && timer < (BREATH_PHASES.INHALE.duration - 500)) { // (Línea duplicada)
+             // (Comentario eliminado para limpieza)
              failBreath("¡Soltaste demasiado pronto!");
             return; // CORRECCIÓN: Detener el loop de este frame
         } else if (phase === 'HOLD' && !isHoldingClick) {
             failBreath("¡Debías seguir manteniendo!");
             return; // CORRECCIÓN: Detener el loop de este frame
-        // CORRECCIÓN: Tolerancia aumentada y simétrica de 500ms
-        } else if (phase === 'EXHALE' && isHoldingClick && timer < (BREATH_PHASES.EXHALE.duration - 500)) {
+        // CORRECCIÓN: Aumentada tolerancia de exhalación a 800ms
+        } else if (phase === 'EXHALE' && isHoldingClick && timer < (BREATH_PHASES.EXHALE.duration - 500)) { 
             failBreath("¡Debías soltar!");
             return; // CORRECCIÓN: Detener el loop de este frame
         }
-    }
     }
 
     // Transición de fases
     if (timer <= 0) {
         switch (phase) {
             case 'INHALE':
-                setBreathPhase('HOLD');
+                // --- CORRECCIÓN BUG INHALAR ---
+                if (!isHoldingClick) {
+                    failBreath("¡No inhalaste a tiempo!");
+                } else {
+                    setBreathPhase('HOLD');
+                }
                 break;
             case 'HOLD':
                 setBreathPhase('EXHALE');
@@ -1281,7 +1401,7 @@ function breathingGameLoop(now) {
                 break;
         }
     }
-    
+
     if (minigame.isActive) {
         minigame.loop = requestAnimationFrame(breathingGameLoop);
     }
@@ -1292,25 +1412,22 @@ function failBreath(reason) {
     if (!minigame.isActive || minigame.isFailing) return;
     
     minigame.isFailing = true; // Pausar el loop
+    
+    // CORRECCIÓN VISUAL: Detener animación inmediatamente
+    dom.breathingCircle.className = 'breathing-circle';
     // CORRECCIÓN: No reproducir estática aquí
     // playAudio('estatica', 1); 
     addNotification(reason, 'danger');
     minigame.failures++;
     // GUARDAR FALLOS
     GAME_STATE.flags.tranquiOsoFails = minigame.failures;
-    dom.breathFails.textContent = minigame.failures;
     saveGame();
-    
+    dom.breathFails.textContent = minigame.failures;
+
     if (minigame.failures >= FAILS_TO_LOSE) {
         endBreathingMinigame(false); // Fracaso
     } else {
-        // Reiniciar ciclo DESPUÉS de una pausa
-        setTimeout(() => {
-            if (minigame.isActive) { // Comprobar si el modal sigue abierto
-                setBreathPhase('WAIT');
-                minigame.isFailing = false; // Reanudar el loop
-            }
-        }, 1000); // 1 segundo de pausa
+        handleMinigameFail(); // Mostrar botones Reiniciar/Salir
     }
 }
 
@@ -1322,7 +1439,7 @@ function succeedBreath() {
     minigame.breaths++;
     // GUARDAR FALLOS (Resetear al ganar)
     GAME_STATE.flags.tranquiOsoFails = 0;
-    // CORRECCIÓN: Cancelar el cooldown de 1 minuto si ganas
+    // Cancelar cooldown de 1 min si ganas
     GAME_STATE.flags.tranquiOsoFailResetCooldown = 0;
     saveGame();
     dom.breathCount.textContent = minigame.breaths;
@@ -1356,7 +1473,7 @@ function handleMinigameSuccess() {
     // 2. Comprobar si se necesita de nuevo
     if (getState().player.fear >= 40 || getState().rulo.fear >= 40) {
         // Sí, mostrar botón de reintentar
-        dom.minigameInstructions.innerHTML = '<button id="minigame-restart-btn" class="ui-btn" style="font-size: 1.2rem;">Volver a Intentar</button>';
+        dom.minigameInstructions.innerHTML = '<button id="minigame-restart-btn" class="ui-btn" style="font-size: 1rem; padding: 5px 8px;">Volver a Intentar</button>';
         
         document.getElementById('minigame-restart-btn').onclick = () => {
             // Reiniciar contadores para la siguiente ronda
@@ -1368,8 +1485,12 @@ function handleMinigameSuccess() {
             dom.minigameInstructions.textContent = '...';
             minigame.isFailing = true; // Pausar
             setTimeout(() => {
-                setBreathPhase('WAIT');
-                minigame.isFailing = false; // Reanudar
+                if (minigame.isActive) {
+                    // CORRECCIÓN CRÍTICA: Resetear el tiempo del frame para evitar saltos
+                    lastFrameTime = performance.now();
+                    setBreathPhase('WAIT');
+                    minigame.isFailing = false; // Reanudar
+                }
             }, 1000);
         };
         
@@ -1385,6 +1506,51 @@ function handleMinigameSuccess() {
     dom.breathCount.textContent = 0;
 }
 
+/** NUEVA FUNCIÓN: Maneja el fallo (1/2) y muestra botones */
+function handleMinigameFail() {
+    minigame.isFailing = true; // Pausar loop
+    dom.minigameInstructions.innerHTML = `
+        <button id="minigame-restart-btn" class="ui-btn" style="font-size: 1rem; padding: 5px 8px;">Reiniciar</button>
+        <button id="minigame-exit-btn" class="ui-btn" style="font-size: 1rem; padding: 5px 8px;">Salir</button>
+    `;
+    
+    document.getElementById('minigame-restart-btn').onclick = () => {
+        // 1. Limpieza inmediata
+        dom.minigameInstructions.innerHTML = 'Reiniciando...'; // Texto temporal
+        dom.breathingCircle.className = 'breathing-circle'; 
+        isHoldingClick = false;
+        minigame.isFailing = true; // Mantener pausado el loop antiguo
+        cancelAnimationFrame(minigame.loop); // Matar el loop antiguo por seguridad
+
+        // 2. Espera de 2.5 segundos
+        setTimeout(() => {
+            if (!minigame.isActive) return; // Si cerró el modal, cancelar
+
+            // 3. Aviso de "Preparado"
+            dom.minigameInstructions.textContent = "Prepárate...";
+            
+            // 4. Pequeña pausa final antes de arrancar (0.5s)
+            setTimeout(() => {
+                if (!minigame.isActive) return;
+                
+                // 5. REINICIO TOTAL DE VARIABLES
+                dom.minigameInstructions.textContent = "...";
+                lastFrameTime = performance.now();
+                minigame.isFailing = false; // Permitir lógica de fallo de nuevo
+                // Resetear fase
+                setBreathPhase('WAIT');
+                // Arrancar nuevo loop
+                minigame.loop = requestAnimationFrame(breathingGameLoop);
+                
+            }, 500);
+
+        }, 2500);
+    };
+    
+    document.getElementById('minigame-exit-btn').onclick = () => {
+        if (dom.minigameModal) dom.minigameModal.querySelector('.close-btn').click();
+    };
+}
 
 function endBreathingMinigame(success, manualClose = false) {
     if (!minigame.isActive) return;
@@ -1414,6 +1580,7 @@ function endBreathingMinigame(success, manualClose = false) {
         
         // CORRECCIÓN: Resetear fallos al tener éxito
         GAME_STATE.flags.tranquiOsoFails = 0;
+        GAME_STATE.flags.tranquiOsoFailResetCooldown = 0;
 
         // NUEVO: Reducir miedo solo si es necesario
         if (getState().player.fear >= 40) {
@@ -1433,17 +1600,28 @@ function endBreathingMinigame(success, manualClose = false) {
             // Penalización de miedo solo si fallaste
             if (minigame.failures >= FAILS_TO_LOSE) {
                  updatePlayerState('fear', 10);
+                 GAME_STATE.flags.tranquiOsoFails = 0; // Reiniciar para la próxima
                 
                 // NUEVO: Iniciar Cooldown
                 const rates = getOsoCooldownRates();
                 const difficulty = getGameDifficulty();
                 const cooldownMs = rates[difficulty] || rates['normal'];
                 GAME_STATE.flags.tranquiOsoCooldown = Date.now() + cooldownMs;
-                addNotification(`Tranqui-Oso está agotado. Necesita recargarse por ${Math.ceil(cooldownMs / 60000)} minutos.`, 'danger');
                 
+                addNotification(`Tranqui-Oso está agotado. Necesita recargarse por ${Math.ceil(cooldownMs / 60000)} minutos.`, 'danger');
                 playAudio('estatica', 3); // CORRECCIÓN: Reproducir estática solo en 2/2
             }
             saveGame(); // Guardar el estado (cooldown o fallos)
+        } else {
+            // Es un cierre manual (botón 'X' o 'Salir')
+            if (minigame.failures > 0 && minigame.failures < FAILS_TO_LOSE) {
+                // Tenía 1/2 fallos y cerró
+                addNotification(`Tranqui-Oso recordará tu fallo... (Reiniciando en 1 min)`, 'danger');
+                GAME_STATE.flags.tranquiOsoFailResetCooldown = Date.now() + 60000; // 1 minuto
+            } else if (minigame.failures === 0) {
+                GAME_STATE.flags.tranquiOsoFails = 0; // Se cerró con 0 fallos
+            }
+            saveGame();
         }
     }
 }

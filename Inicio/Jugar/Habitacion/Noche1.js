@@ -28,9 +28,25 @@ let searchState = {
 
 // --- INICIO DEL JUEGO ---
 document.addEventListener('DOMContentLoaded', () => {
+    // --- MEDIDA DE SEGURIDAD: Verificar carga del Motor ---
+    if (!Game || typeof Game.init !== 'function') {
+        console.error("ERROR FATAL: El motor del juego (Motor.js) no se ha cargado correctamente.");
+        alert("Error al cargar el juego. Revisa la consola (F12).");
+        return;
+    }
+    // -----------------------------------------------------
+
     Game.init();
-    Game.hideLoadingScreen(); 
     
+    // Protección extra por si la función específica falla
+    if (typeof Game.hideLoadingScreen === 'function') {
+        Game.hideLoadingScreen();
+    } else {
+        console.error("ADVERTENCIA: Game.hideLoadingScreen no encontrada.");
+        // Intento manual de ocultar si falla el motor
+        const loader = document.getElementById('loading-overlay');
+        if (loader) loader.classList.add('hidden');
+    }
     // Iniciar el juego
     startGame();
 });
@@ -485,24 +501,43 @@ async function searchWardrobe() {
 
 /** NUEVA FUNCION: Hablar con Rulo */
 async function handleTalkToRulo() {
-    // CORRECCIÓN: Usar Game.getState() para leer el estado real
     const currentState = Game.getState();
-    const ruloFear = currentState.rulo.fear;
-    const ruloThirst = currentState.rulo.thirst;
-    const ruloHunger = currentState.rulo.hunger;
-    
+    const playerInventory = currentState.inventory.consumables;
     let roll = Math.random();
-    
-    if (ruloFear > 60) {
+
+    // --- LÓGICA DE DECISIÓN (BASADA EN GUIÓN) ---
+
+    // 1. DISPARADOR DE MIEDO
+    if (currentState.rulo.fear > 70) {
+        await Game.addDialogue("'¡Nos va a encontrar! ¡La cosa de la ventana! ¡El Conserje! ¡Estamos muertos, estamos muertos, muertos...!'", "Rulo");
+        Game.addChoice("[Calmarlo]", handleRuloFearCalm);
+        Game.addChoice("[Abofetearlo]", handleRuloFearSlap);
+        Game.addChoice("[Ignorarlo]", handleRuloFearIgnore);
+        return; // Esperar decisión
+    }
+
+    // 2. DISPARADOR DE SED
+    const hasWater = playerInventory.find(i => i.id === 'water');
+    if (currentState.rulo.thirst < 30 && hasWater) {
+        await Game.addDialogue(`(Tosiendo) 'Tío... mi garganta... está tan seca. ¿Me... me das un trago de esa botella que encontraste? Por favor. Solo uno.'`, "Rulo");
+        Game.addChoice("[Dar trago]", () => handleRuloThirstGive(hasWater));
+        Game.addChoice("[Negarse]", handleRuloThirstRefuse);
+        Game.addChoice("[Mentir]", handleRuloThirstLie);
+        return; // Esperar decisión
+    }
+
+    // 3. DISPARADOR DE HAMBRE
+    const hasFood = playerInventory.find(i => i.id === 'cereal');
+    if (currentState.rulo.hunger < 30 && hasFood) {
+        await Game.addDialogue("'Me voy a desmayar... no he comido en... ¿cuánto? ¿Todavía tienes esa barra? Podríamos... ¿compartirla?'", "Rulo");
+        Game.addChoice("[Compartir]", () => handleRuloHungerShare(hasFood));
+        Game.addChoice("[Negarse]", handleRuloHungerRefuse);
+        return; // Esperar decisión
+    }
+
+    // --- DIÁLOGO GENÉRICO (Si no hay disparadores críticos) ---
+    if (currentState.rulo.fear > 30) {
         if (roll < 0.5) {
-            await Game.addDialogue("'No puedo... no puedo... nos va a encontrar, lo sé...'", "Rulo");
-        } else {
-            await Game.addDialogue("'¡¿Oíste eso?! ¡Se está moviendo! ¡Cállate, cállate!'", "Rulo");
-        }
-        Game.addNotification("Rulo está aterrado. Tu miedo aumenta.", "danger");
-        Game.updatePlayerState('fear', 5);
-    } else if (ruloFear > 30) {
-        if (roll < 0.5) {   
             await Game.addDialogue("'Manten la linterna baja... no queremos que nos vean. ¿Verdad?'", "Rulo");
         } else {
             await Game.addDialogue("'Solo... sigamos buscando. Rápido. Quiero salir de aquí.'", "Rulo");
@@ -517,14 +552,14 @@ async function handleTalkToRulo() {
         }
     }
 
-    // Comentarios de estado
-    if (ruloThirst < 50) {
+    // Comentarios de estado (Menos críticos)
+    if (currentState.rulo.thirst < 50 && currentState.rulo.thirst >= 30) {
         await Game.addDialogue("'Ugh... daría lo que fuera por un trago de agua.'", "Rulo");
-    } else if (ruloHunger < 60) {
+    } else if (currentState.rulo.hunger < 60 && currentState.rulo.hunger >= 30) {
         await Game.addDialogue("'Me rugen las tripas... ¿cuánto tiempo llevamos aquí?'", "Rulo");
     }
 
-    // --- NUEVO: Reducir Cooldown de Tranqui-Oso ---
+    // --- Reducir Cooldown de Tranqui-Oso ---
     if (Game.getFlag('tranquiOsoCooldown') > Date.now()) {
         const reduction = 15000; // 15 segundos
         let newCooldown = Game.getFlag('tranquiOsoCooldown') - reduction;
@@ -536,6 +571,87 @@ async function handleTalkToRulo() {
     displaySearchOptions(); // Volver a las opciones
 }
 
+// --- NUEVAS FUNCIONES: Ramas de Diálogo de Rulo ---
+
+async function handleRuloFearCalm() {
+    await Game.addDialogue(`'¡Rulo, mírame! ¡Mírame! Estamos juntos en esto. No te pierdas ahora.'`, "Tú");
+    // Lógica de éxito/fracaso (simple por ahora)
+    if (Math.random() > 0.3) {
+        await Game.addDialogue("'Tú... tienes razón. Lo siento. Estoy... estoy bien. Sigamos.'", "Rulo");
+        Game.updateRuloState('fear', -15);
+        Game.setFlag('amistad_rulo', (Game.getFlag('amistad_rulo') || 0) + 1);
+    } else {
+        await Game.addDialogue("'¡No lo entiendes! ¡No entiendes!'", "Rulo");
+        Game.updatePlayerState('fear', 5);
+    }
+    displaySearchOptions();
+}
+
+async function handleRuloFearSlap() {
+    await Game.addDialogue(`(Le das una bofetada) '¡Cállate!'`, "Tú");
+    await Game.addDialogue("...", "Rulo");
+    await Game.addDialogue("'...' (Te mira con una mezcla de miedo y rabia)", "Sistema");
+    Game.updateRuloState('fear', -20); // El shock lo calla
+    Game.setFlag('amistad_rulo', (Game.getFlag('amistad_rulo') || 0) - 2);
+    Game.addNotification("Rulo se calla. Tu relación ha empeorado.", "danger");
+    displaySearchOptions();
+}
+
+async function handleRuloFearIgnore() {
+    await Game.addDialogue("Decides ignorarlo. Sus sollozos se hacen más fuertes.", "Sistema");
+    Game.updateRuloState('fear', 5);
+    Game.updatePlayerState('fear', 5);
+    Game.addNotification("El miedo de Rulo aumenta. El tuyo también.", "danger");
+    displaySearchOptions();
+}
+
+async function handleRuloThirstGive(item) {
+    await Game.addDialogue("'Claro, toma.'", "Tú");
+    // El item 'agua' tiene 3 usos
+    item.stack = (item.stack || 1) - 0.34; // Simular 1/3
+    if (item.stack <= 0) {
+        Game.removeItem('consumables', item.id);
+    } else {
+        Game.renderInventory(); // Actualizar UI
+        Game.saveGame();
+    }
+    Game.updateRuloState('thirst', 30);
+    Game.setFlag('amistad_rulo', (Game.getFlag('amistad_rulo') || 0) + 1);
+    displaySearchOptions();
+}
+
+async function handleRuloThirstRefuse() {
+    await Game.addDialogue("'No. Tenemos que guardarla. No sabemos cuándo encontraremos más.'", "Tú");
+    Game.setFlag('amistad_rulo', (Game.getFlag('amistad_rulo') || 0) - 1);
+    Game.updateRuloState('fear', 5);
+    Game.addNotification("Rulo te mira con resentimiento.", "danger");
+    displaySearchOptions();
+}
+
+async function handleRuloThirstLie() {
+    await Game.addDialogue("'Ya no tengo.'", "Tú");
+    await Game.addDialogue("'Mentiroso... Acabo de oír la botella en tu mochila.'", "Rulo");
+    Game.setFlag('amistad_rulo', (Game.getFlag('amistad_rulo') || 0) - 2);
+    Game.updateRuloState('fear', 10);
+    Game.addNotification("Rulo sabe que mientes. Vuestra relación empeora.", "danger");
+    displaySearchOptions();
+}
+
+async function handleRuloHungerShare(item) {
+    await Game.addDialogue("'Ten. Come.'", "Tú");
+    Game.removeItem('consumables', item.id); // Se consume toda
+    Game.updatePlayerState('hunger', 20); // Ambos recuperan un poco
+    Game.updateRuloState('hunger', 20);
+    Game.setFlag('amistad_rulo', (Game.getFlag('amistad_rulo') || 0) + 1);
+    displaySearchOptions();
+}
+
+async function handleRuloHungerRefuse() {
+    await Game.addDialogue("'Necesito toda mi energía. No puedo compartirla.'", "Tú");
+    Game.setFlag('amistad_rulo', (Game.getFlag('amistad_rulo') || 0) - 1);
+    Game.addNotification("Rulo te mira con debilidad y rabia.", "danger");
+    displaySearchOptions();
+}
 
 async function startExitSequence() {
     await Game.wait(500);
