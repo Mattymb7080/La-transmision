@@ -197,20 +197,17 @@ function setupModalListeners() {
     // Botón de Inventario
     dom.inventoryBtn.addEventListener('click', () => showModal(dom.inventoryModal));
     
-    // BOTONES DE ESTADO (ACTUALIZADO)
+    // BOTONES DE ESTADO (ACTUALIZADO - AHORA INDIVIDUALES)
     dom.playerStatusBtn.addEventListener('click', () => {
+        // Muestra jugador, oculta rulo
         dom.playerStats.display.classList.remove('hidden');
-        // Ocultar Rulo si su botón de estado aún no es visible
-        if (dom.ruloStatusBtn.classList.contains('hidden')) {
-            dom.ruloStats.display.classList.add('hidden');
-        } else {
-            dom.ruloStats.display.classList.remove('hidden');
-        }
+        dom.ruloStats.display.classList.add('hidden');
         showModal(dom.statusModal);
     });
     
     dom.ruloStatusBtn.addEventListener('click', () => {
-        dom.playerStats.display.classList.remove('hidden');
+        // Muestra rulo, oculta jugador
+        dom.playerStats.display.classList.add('hidden');
         dom.ruloStats.display.classList.remove('hidden');
         showModal(dom.statusModal);
     });
@@ -292,7 +289,8 @@ function setupGlobalKeyListener() {
             if (activeModal === dom.statusModal) {
                 hideModal(activeModal);
             } else {
-                dom.playerStatusBtn.click(); // Abre el estado (que ahora muestra ambos)
+                // Abre el estado del jugador por defecto
+                dom.playerStatusBtn.click(); 
             }
         }
     });
@@ -412,9 +410,10 @@ export async function addDialogue(text, speaker = '') {
             dom.dialogueWindow.appendChild(p);
             dom.dialogueWindow.scrollTop = dom.dialogueWindow.scrollHeight;
             
-            // --- ACTUALIZADO: Cooldown NO bloqueante ---
-            wait(SYSTEM_DIALOGUE_COOLDOWN_MS); // Inicia el timer, pero no espera
-            return; // Retorna inmediatamente
+            // --- CORRECCIÓN: Hacer que 'Sistema' sea bloqueante (awaitable) ---
+            //    para que los await en Noche1.js funcionen.
+            await wait(SYSTEM_DIALOGUE_COOLDOWN_MS); // Espera el cooldown
+            return; // Retorna la promesa resuelta
             // ---------------------------------------------------
         } else {
             span.textContent = `${speaker}`;
@@ -523,7 +522,11 @@ export function setNightNumber(num) {
     saveGame();
 }
 export function getNightNumber() { return GAME_STATE.currentNight; }
-export function isNewPlayer() { return !GAME_STATE.flags.isNewPlayer; }
+
+/** CORREGIDO: Devuelve true si la flag 'isNewPlayer' no es explícitamente 'false' */
+export function isNewPlayer() { 
+    return GAME_STATE.flags.isNewPlayer !== false; 
+}
 
 /** Establece la ubicación actual */
 export function setLocation(locationName) {
@@ -587,7 +590,7 @@ export function showPlayerStatsButton() {
 /** Muestra las estadísticas de Rulo en la UI */
 export function showRuloStats() {
     dom.ruloStatusBtn.classList.remove('hidden');
-    dom.ruloStats.display.classList.remove('hidden');
+    // NO mostrar el display aquí, solo el botón. El listener se encarga
 }
 
 
@@ -634,6 +637,7 @@ function saveGame() {
     localStorage.setItem(SAVE_KEY, JSON.stringify(GAME_STATE));
 }
 
+/** CORREGIDO: Lógica de carga para 'isNewPlayer' */
 function loadGame() {
     const savedData = localStorage.getItem(SAVE_KEY);
     if (savedData) {
@@ -644,17 +648,21 @@ function loadGame() {
         GAME_STATE.player = { ...GAME_STATE.player, ...parsedData.player };
         GAME_STATE.rulo = { ...GAME_STATE.rulo, ...parsedData.rulo };
         GAME_STATE.inventory = { ...GAME_STATE.inventory, ...parsedData.inventory };
+        
+        // CORRECCIÓN LÓGICA 'isNewPlayer'
+        // 1. Cargar las flags guardadas
         GAME_STATE.flags = { ...GAME_STATE.flags, ...parsedData.flags };
         
-        // CORRECCIÓN: Asegurarse de que isNewPlayer se cargue correctamente
-        // Si flags no existe en el save, se reinicia.
-        if (!parsedData.flags) {
-            GAME_STATE.flags = { isNewPlayer: true };
+        // 2. Si 'isNewPlayer' es explícitamente 'false' en el guardado, es 'false'.
+        //    En CUALQUIER OTRO CASO (true, undefined, o sin objeto flags), es 'true'.
+        if (parsedData.flags && parsedData.flags.isNewPlayer === false) {
+            GAME_STATE.flags.isNewPlayer = false;
         } else {
-            GAME_STATE.flags.isNewPlayer = parsedData.flags.isNewPlayer || false;
+            GAME_STATE.flags.isNewPlayer = true;
         }
 
     } else {
+        // No hay datos guardados en absoluto.
         GAME_STATE.flags.isNewPlayer = true;
     }
 }
@@ -837,7 +845,7 @@ function useItem(item) {
             
         case 'pills':
             addNotification("Tomas las píldoras... te sientes más calmado, pero mareado.", 'item');
-            updatePlayerState('fear', item.restore || -30); // Instantáneo
+            updatePlayerState('fear', item.restore || -50); // Instantáneo
             removeItem('consumables', item.id, 1);
             break;
             
@@ -955,11 +963,14 @@ function startBreathingMinigame() {
     dom.minigameTutorial.classList.remove('hidden');
     dom.minigameContent.classList.add('hidden');
     
-    // Listeners de input
-    dom.minigameModal.onmousedown = () => { isHoldingClick = true; };
-    dom.minigameModal.onmouseup = () => { isHoldingClick = false; };
-    dom.minigameModal.ontouchstart = (e) => { e.preventDefault(); isHoldingClick = true; };
-    dom.minigameModal.ontouchend = (e) => { e.preventDefault(); isHoldingClick = false; };
+    // CORRECCIÓN TRANQUI-OSO:
+    // Los listeners deben estar en 'minigameContent' (el área del juego),
+    // no en 'minigameModal' (todo el modal).
+    // De lo contrario, el clic en "Comenzar" se registra como "soltar" y causa un fallo inmediato.
+    dom.minigameContent.onmousedown = () => { isHoldingClick = true; };
+    dom.minigameContent.onmouseup = () => { isHoldingClick = false; };
+    dom.minigameContent.ontouchstart = (e) => { e.preventDefault(); isHoldingClick = true; };
+    dom.minigameContent.ontouchend = (e) => { e.preventDefault(); isHoldingClick = false; };
 
     // Botón para empezar
     dom.minigameStartBtn.onclick = () => {
@@ -970,7 +981,7 @@ function startBreathingMinigame() {
         minigame.loop = requestAnimationFrame(breathingGameLoop);
     };
 
-    // Resetear UI
+    // Resetear UI (Ahora 'Fallos' se muestra correctamente en 0)
     dom.breathCount.textContent = "0";
     dom.breathFails.textContent = "0";
 }
@@ -1004,7 +1015,7 @@ function breathingGameLoop(now) {
     dom.minigameTimer.textContent = (timer / 1000).toFixed(1);
 
     // Lógica de fallo
-    if (phase === 'INHALE' && !isHoldingClick) {
+    if (phase === 'INHALE' && !isHoldingClick && timer < (BREATH_PHASES.INHALE.duration - 100)) { // Pequeño margen
         failBreath("¡Soltaste demasiado pronto!");
     } else if (phase === 'HOLD' && !isHoldingClick) {
         failBreath("¡Debías seguir manteniendo!");
@@ -1072,10 +1083,10 @@ function endBreathingMinigame(success, manualClose = false) {
     cancelAnimationFrame(minigame.loop);
     
     // Limpiar listeners
-    dom.minigameModal.onmousedown = null;
-    dom.minigameModal.onmouseup = null;
-    dom.minigameModal.ontouchstart = null;
-    dom.minigameModal.ontouchend = null;
+    dom.minigameContent.onmousedown = null;
+    dom.minigameContent.onmouseup = null;
+    dom.minigameContent.ontouchstart = null;
+    dom.minigameContent.ontouchend = null;
     dom.minigameStartBtn.onclick = null;
     
     if (!manualClose) {

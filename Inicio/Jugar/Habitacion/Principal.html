@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
+    <meta charset="UTF-AR">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>La Transmisión - Noche 1</title>
     <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
@@ -95,11 +95,11 @@
         </div>
     </div>
     
-    <div id="status-modal" class="modal hidden">
+    <div id="player-status-modal" class="modal hidden">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>ESTADO DE PERSONAJES</h2>
-                <button class="close-btn" data-modal-id="status-modal">X</button>
+                <h2>TU ESTADO</h2>
+                <button class="close-btn" data-modal-id="player-status-modal">X</button>
             </div>
             <div class="modal-body">
                 
@@ -123,7 +123,19 @@
                     <p class="stat-condition-description" id="player-condition-description">Sin efectos negativos.</p>
                 </div>
                 
-                <div id="rulo-stats-display" class="stat-block hidden">
+            </div>
+        </div>
+    </div>
+    
+    <div id="rulo-status-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>ESTADO DE RULO</h2>
+                <button class="close-btn" data-modal-id="rulo-status-modal">X</button>
+            </div>
+            <div class="modal-body">
+                
+                <div id="rulo-stats-display" class="stat-block">
                     <h3>RULO</h3>
                     <div class="stat-row">
                         <span>SALUD</span>
@@ -156,6 +168,7 @@
             </div>
         </div>
     </div>
+
 
     <div id="minigame-modal" class="modal hidden">
         <div class="modal-content" style="width: 400px; text-align: center;">

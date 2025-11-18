@@ -35,13 +35,80 @@ document.addEventListener('DOMContentLoaded', () => {
     startGame();
 });
 
+/**
+ * MODIFICADO: Ahora comprueba si es un jugador nuevo,
+ * si debe reanudar una partida, o si debe empezar de cero.
+ */
 function startGame() {
+    const resumeNode = Game.getFlag('currentStoryNode');
+
     if (Game.isNewPlayer()) {
+        // 1. Jugador 100% nuevo -> Pedir nombre
         Game.promptForName(startNight1_Intro); 
+    } else if (resumeNode) {
+        // 2. Jugador existente CON un punto de guardado -> Reanudar
+        Game.showGameContainer();
+        Game.addDialogue(`[Sistema: Reanudando... Noche ${Game.getNightNumber()}]`, "Sistema");
+        resumeGame(resumeNode);
     } else {
+        // 3. Jugador existente SIN punto de guardado (p.ej. justo después de poner nombre)
         startNight1_Intro();
     }
 }
+
+/**
+ * NUEVA FUNCIÓN: Reanuda el juego desde el último
+ * punto de guardado (nodo de historia).
+ */
+async function resumeGame(node) {
+    // Restaura el estado visual (botones de stats) si es necesario
+    if (Game.getFlag('n1_gave_flashlight')) {
+        Game.showPlayerStatsButton();
+        Game.showRuloStats();
+    } else if (Game.getFlag('player_stats_unlocked')) {
+         Game.showPlayerStatsButton();
+    }
+    
+    // Carga las opciones correctas
+    switch(node) {
+        case 'startNight1_Intro_Choices':
+            await Game.addDialogue("...", "Sistema"); // Re-orientar
+            Game.addChoice("Observar entorno.", () => handleChoiceObserve());
+            Game.addChoice("Llamar a la figura.", () => handleChoiceCall());
+            Game.addChoice("Levantarse.", () => handleChoiceStand());
+            break;
+            
+        case 'displaySearchOptions':
+            await Game.addDialogue("Estabas decidiendo qué registrar...", "Sistema");
+            // Recargar el estado de búsqueda desde las flags (por si acaso)
+            searchState.nightstand = Game.getFlag('search_nightstand') !== false;
+            searchState.wardrobe = Game.getFlag('search_wardrobe') !== false;
+            searchState.underBeds = Game.getFlag('search_underBeds') !== false;
+            searchState.window = Game.getFlag('search_window') !== false;
+            
+            displaySearchOptions(); // Esta función regenera las opciones
+            break;
+            
+        case 'handleCheckWindowAgain_Choices':
+            await Game.addDialogue("Estabas decidiendo qué observar en la ventana...", "Sistema");
+            Game.addChoice("Observar su cuerpo", handleObserveBody);
+            Game.addChoice("Observar su movimiento", handleObserveMovement);
+            break;
+            
+        case 'startExitSequence_Choices':
+            await Game.addDialogue("Estabas decidiendo cómo salir...", "Sistema");
+            Game.addChoice("ESCUCHAR EN LA PUERTA", handleExitListen);
+            Game.addChoice("ABRIR LA PUERTA DE GOLPE", handleExitBash);
+            Game.addChoice("ABRIR LA PUERTA LENTAMENTE", handleExitSneak);
+            break;
+            
+        default:
+            // Si el nodo es desconocido, reiniciar
+            await Game.addDialogue("[Sistema: Error de guardado. Reiniciando Noche.]", "Sistema");
+            startNight1_Intro();
+    }
+}
+
 
 async function startNight1_Intro() {
     Game.showGameContainer();
@@ -59,6 +126,9 @@ async function startNight1_Intro() {
     Game.addChoice("Observar entorno.", () => handleChoiceObserve());
     Game.addChoice("Llamar a la figura.", () => handleChoiceCall());
     Game.addChoice("Levantarse.", () => handleChoiceStand());
+    
+    // GUARDADO: Establece el primer punto de reanudación
+    Game.setFlag('currentStoryNode', 'startNight1_Intro_Choices');
 }
 
 // --- MANEJADORES DE ELECCIONES INICIALES ---
@@ -107,8 +177,7 @@ async function triggerStateTutorial() {
 
     // --- NUEVO: Mostrar botón de estado (Solo jugador) ---
     Game.showPlayerStatsButton();
-    // NO mostrar el de Rulo todavía
-    // Game.showRuloStats(); 
+    Game.setFlag('player_stats_unlocked', true); // Flag para reanudar
     
     // Establecer valores iniciales
     Game.updatePlayerState('health', 90, true);
@@ -148,6 +217,9 @@ async function startRoomSearch() {
 }
 
 function displaySearchOptions() {
+    // GUARDADO: Este es el nodo principal de reanudación
+    Game.setFlag('currentStoryNode', 'displaySearchOptions');
+    
     Game.clearChoices();
     let searchesLeft = 0;
     
@@ -183,10 +255,13 @@ function displaySearchOptions() {
 
 async function searchNightstand() {
     searchState.nightstand = false;
+    Game.setFlag('search_nightstand', false); // Guardar estado de búsqueda
+    
     await Game.addDialogue("Hurgas en el cajón superior de la mesita. Tus dedos tocan metal frío y papel.", "Sistema");
     
     Game.addItem('keyItems', { id: 'flashlight', name: 'Linterna', energy: 15 });
     Game.addItem('notes', NOTAS.nota1);
+    Game.setFlag('note1_found', true); // CORRECCIÓN: Marcar que se encontró la nota 1
     Game.addItem('consumables', { id: 'battery_spent', name: 'Baterías Gastadas', stack: 1, restore: 20 });
 
     await Game.addDialogue("¡Una linterna! No tiene mucha carga, la luz es débil.", "Tú");
@@ -213,7 +288,7 @@ async function handleGiveFlashlight() {
 }
 
 async function handleRefuseFlashlight() {
-    await Game.addDialogue("Le dices que tú la llevarás. Rulo te mira dolido. 'No es momento de ser egoísta, [Nombre del Jugador]'.", "Tú");
+    await Game.addDialogue(`Le dices que tú la llevarás. Rulo te mira dolido. 'No es momento de ser egoísta, ${Game.getPlayerName()}...'.`, "Tú");
     Game.updateRuloState('fear', 10);
     Game.setFlag('n1_refused_flashlight_first', true); // Guardar intento
     Game.addNotification("Miedo de Rulo +10", "danger");
@@ -232,7 +307,7 @@ async function readNote1() {
     await Game.showNoteReader(NOTAS.nota1.name, NOTAS.nota1.content);
     
     await Game.addDialogue("...'Alimento'. Rulo, ¿qué significa 'alimento'?", "Tú");
-    await Game.addDialogue("¡Esto es una broma! ¡Tiene que ser una broma de mal gusto! ¡'La Cosecha'! ¡¿Qué hospital escribe esto?! ¡Sácame de aquí, [Nombre del Jugador]! ¡YA!", "Rulo");
+    await Game.addDialogue(`¡Esto es una broma! ¡Tiene que ser una broma de mal gusto! ¡'La Cosecha'! ¡¿Qué hospital escribe esto?! ¡Sácame de aquí, ${Game.getPlayerName()}! ¡YA!`, "Rulo");
     Game.updateRuloState('fear', 10);
     Game.addNotification("Miedo de Rulo +10", "danger");
 
@@ -242,6 +317,7 @@ async function readNote1() {
 async function triggerWindowEvent() {
     Game.setFlag('window_event_done', true); // Marcar que el evento ocurrió
     searchState.window = false; // Permitir que se revise de nuevo
+    Game.setFlag('search_window', false); // Guardar estado
     
     await Game.addDialogue("Rulo, ahora sosteniendo la linterna, barre la habitación: las paredes desconchadas, una silla de ruedas volcada, la puerta metálica... y luego, la ventana enrejada.", "Sistema");
     await Game.addDialogue("Voy a... voy a ver qué hay afuera.", "Rulo");
@@ -270,6 +346,7 @@ async function triggerWindowEvent() {
 
 async function handleCheckWindowAgain() {
     searchState.window = true; // Marcar como "revisada" para que no vuelva a salir
+    Game.setFlag('search_window', true);
     
     await Game.addDialogue("Rulo, alumbra la ventana. Con cuidado. Quiero ver algo.", "Tú");
     await Game.addDialogue("¡Estás loco! ¡No voy a...", "Rulo");
@@ -279,6 +356,9 @@ async function handleCheckWindowAgain() {
     await Game.addDialogue("[Decisión Crítica: ¿En qué te concentras?]", "Sistema");
     Game.addChoice("Observar su cuerpo", handleObserveBody);
     Game.addChoice("Observar su movimiento", handleObserveMovement);
+
+    // GUARDADO: Punto de reanudación
+    Game.setFlag('currentStoryNode', 'handleCheckWindowAgain_Choices');
 }
 
 async function handleObserveBody() {
@@ -304,6 +384,8 @@ async function creatureLeaves() {
 
 async function searchUnderBeds() {
     searchState.underBeds = false;
+    Game.setFlag('search_underBeds', false); // Guardar estado
+    
     await Game.addDialogue("Deciden revisar bajo las camas. Rulo alumbra el suelo polvoriento.", "Sistema");
     await Game.addDialogue("¡Espera! ¡Ahí!", "Rulo");
     
@@ -311,7 +393,14 @@ async function searchUnderBeds() {
     Game.addItem('consumables', { id: 'battery_spent', name: 'Baterías Gastadas', stack: 1, restore: 20 });
     Game.addItem('minigames', { id: 'tranqui_oso', name: 'Tranqui-Oso', description: "Un viejo oso de peluche. Te calma." });
 
-    await Game.addDialogue("Hay otra nota... está arrugada.", "Tú");
+    // CORRECCIÓN: Comprueba si es la primera nota encontrada
+    const note1Found = Game.getFlag('note1_found');
+    if (note1Found) {
+        await Game.addDialogue("Hay otra nota... está arrugada.", "Tú");
+    } else {
+        await Game.addDialogue("Hay una nota... está arrugada.", "Tú");
+    }
+    
     // ESPERA a que el jugador cierre la nota
     await Game.showNoteReader(NOTAS.nota2.name, NOTAS.nota2.content);
     
@@ -323,7 +412,7 @@ async function searchUnderBeds() {
     await Game.addDialogue("Esto es... raro. Es un oso de peluche. Le falta un ojo y parece muy viejo.", "Tú");
     await Game.addDialogue("¿Un juguete? ¿De quién es esto? Qué... triste. Me da escalofríos. Déjalo, debe estar sucio.", "Rulo");
     await Game.addDialogue("No... Siento... siento como si lo conociera. Como de un sueño... o una pesadilla. Lo guardaré.", "Tú");
-    await Game.addDialogue("[Sistema: ¡Tranqui-Oso Obtenido! Abre la Mochila (Pestaña Minijuegos) cuando tu Miedo sea > 50% para intentar 'Respiración Controlada'.]", "Sistema");
+    await Game.addDialogue("[Sistema: ¡Tranqui-Oso Obtenido! Abre la Mochila (Pestaña Minijuegos) cuando tu Miedo sea > 40% para intentar 'Respiración Controlada'.]", "Sistema");
 
     await Game.wait(500);
     displaySearchOptions();
@@ -331,6 +420,8 @@ async function searchUnderBeds() {
 
 async function searchWardrobe() {
     searchState.wardrobe = false;
+    Game.setFlag('search_wardrobe', false); // Guardar estado
+    
     await Game.addDialogue("Rulo te alumbra mientras abres el armario metálico. Chirría ruidosamente.", "Sistema");
     Game.updatePlayerState('fear', 5);
     Game.addNotification("Miedo +5", "danger");
@@ -378,14 +469,14 @@ async function handleTalkToRulo() {
         Game.addNotification("Rulo está aterrado. Tu miedo aumenta.", "danger");
         Game.updatePlayerState('fear', 5);
     } else if (ruloFear > 30) {
-        if (roll < 0.5) {
+        if (roll < 0.5) {   
             await Game.addDialogue("'Manten la linterna baja... no queremos que nos vean. ¿Verdad?'", "Rulo");
         } else {
             await Game.addDialogue("'Solo... sigamos buscando. Rápido. Quiero salir de aquí.'", "Rulo");
         }
     } else {
         if (roll < 0.5) {
-            await Game.addDialogue("'Estamos juntos en esto, [Nombre]. Lo lograremos.'", "Rulo");
+            await Game.addDialogue(`'Estamos juntos en esto, ${Game.getPlayerName()}. Lo lograremos.'`, "Rulo");
             Game.addNotification("Rulo intenta mantener la calma. Te sientes un poco mejor.", "info");
             Game.updatePlayerState('fear', -5);
         } else {
@@ -432,6 +523,9 @@ async function startExitSequence() {
     Game.addChoice("ESCUCHAR EN LA PUERTA", handleExitListen);
     Game.addChoice("ABRIR LA PUERTA DE GOLPE", handleExitBash);
     Game.addChoice("ABRIR LA PUERTA LENTAMENTE", handleExitSneak);
+    
+    // GUARDADO: Punto de reanudación
+    Game.setFlag('currentStoryNode', 'startExitSequence_Choices');
 }
 
 // --- SECUENCIAS DE SALIDA ---
