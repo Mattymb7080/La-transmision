@@ -1,6 +1,7 @@
 /* * Motor.js
  * El motor principal del juego.
  * Maneja la UI, el estado, el inventario, el guardado y los eventos.
+ * Inicio\Jugar\Habitacion\Motor.js
  */
 
 // IMPORTAMOS LA DIFICULTAD
@@ -26,7 +27,7 @@ const GAME_SETTINGS = {
         'easy': {
             energy: 1,      // Drenaje de linterna
             fear_darkness: 0, // Aumento de miedo en oscuridad
-            hunger: 0,      // Drenaje de hambre
+            hunger: 1,      // Drenaje de hambre
             thirst: 1       // Drenaje de sed
         },
         'normal': {
@@ -69,6 +70,7 @@ const GAME_SETTINGS = {
 // --- ESTADO DEL JUEGO ---
 let GAME_STATE = {
     playerName: "Tú",
+    companionName: "Rulo", // Nuevo campo
     currentNight: 1,
     difficulty: "normal", // Se cargará al iniciar
     player: { health: 100, hunger: 100, thirst: 100, fear: 0 },
@@ -76,7 +78,8 @@ let GAME_STATE = {
     inventory: { consumables: [], keyItems: [], notes: [], minigames: [] },
     flags: {
         tranquiOsoCooldown: 0, // Almacena el timestamp (Date.now() + ms)
-        wardrobe_cooldown: 0
+        wardrobe_cooldown: 0,
+        lastStarvationDamage: 0 // Tracker para daño por hambre
     }, // NUEVO: Cooldown para resetear fallos al cerrar
     tranquiOsoFailResetCooldown: 0,
     currentLocation: "Habitación 1204"
@@ -103,7 +106,27 @@ let systemWaitResolver = null;
 // --- NUEVO: Variables de Pausa ---
 let isGamePaused = false;
 let pauseStartTime = 0;
+let pausedAudioState = []; // Para guardar qué audios estaban sonando
 
+// --- AUDIO MANAGER ---
+let audioContext = {
+    bgm: new Audio('../../Assets/Audios/Lluvia.mp3'),
+    heartbeat: new Audio('../../Assets/Audios/Corazon.mp3'),
+    typingP1: new Audio('../../Assets/Audios/Dialogo 1.mp3'),
+    typingP2: new Audio('../../Assets/Audios/Dialogo 2.mp3'),
+    sfx: {} // Cache dinámico
+};
+// Configuración inicial de loops
+audioContext.bgm.loop = true;
+audioContext.bgm.volume = 0.3; // Volumen ajustable
+audioContext.heartbeat.loop = true;
+audioContext.heartbeat.volume = 0; // Empieza mudo
+
+// Cache de SFX (precarga básica)
+const SFX_LIST = ['Golpe.mp3', 'Arrugar papel.mp3', 'Distorsion.mp3', 'Estatica.mp3'];
+SFX_LIST.forEach(file => {
+    audioContext.sfx[file] = new Audio(`../../Assets/Audios/${file}`);
+});
 
 // --- ESTADO DEL MINIJUEGO ---
 let minigame = {
@@ -113,12 +136,6 @@ let minigame = {
     breaths: 0,
     failures: 0,
     loop: null // Para guardar el setInterval/requestAnimationFrame
-};
-
-// --- CACHÉ DE AUDIO (Ejemplo) ---
-// (Se expandirá en el futuro)
-let audioCache = {
-    estatica: new Audio('../../Assets/Audios/Estatica.mp3')
 };
 
 // --- RESOLVERS DE PROMESAS ---
@@ -138,6 +155,11 @@ export function init() {
         
         // NUEVO: Iniciar el "latido" de la UI (para actualizar cooldowns en vivo)
         setInterval(updateCooldownUI, 1000);
+        
+        // Iniciar audio de fondo si ya estamos en juego
+        if (!GAME_STATE.flags.isNewPlayer) {
+             audioContext.bgm.play().catch(e => console.log("Interacción requerida para audio"));
+        }
     } catch (error) {
         console.error("Error fatal durante la inicialización del juego:", error);
         addNotification("Error de Sistema: Reinicia el juego.", "danger");
@@ -150,7 +172,12 @@ export function init() {
         // Overlays
         loadingOverlay: document.getElementById('loading-overlay'),
         nameOverlay: document.getElementById('name-input-overlay'),
+        imageViewer: document.getElementById('image-viewer'),
+        gameImage: document.getElementById('game-image'),
+        damageOverlay: document.getElementById('damage-overlay'),
+        
         nameInput: document.getElementById('player-name-input'),
+        companionInput: document.getElementById('companion-name-input'), // NUEVO
         nameConfirmBtn: document.getElementById('confirm-name-btn'),
         introOverlay: document.getElementById('intro-overlay'),
         
@@ -440,6 +467,34 @@ function setupGlobalKeyListener() {
 }
 
 
+/** NUEVO: Gestión de Imágenes */
+export function showImage(imageName) {
+    return new Promise(resolve => {
+        // Verificación de seguridad
+        if (!dom.imageViewer || !dom.gameImage) {
+            console.error("Error: Visor de imágenes no inicializado en DOM.");
+            resolve(); 
+            return;
+        }
+
+        dom.gameImage.src = `../../Assets/Imagenes/${imageName}`;
+        dom.imageViewer.classList.remove('hidden');
+        
+        // Handler para cerrar al hacer clic
+        const closeHandler = () => {
+            dom.imageViewer.classList.add('hidden');
+            dom.imageViewer.removeEventListener('click', closeHandler);
+            dom.gameImage.src = ""; // Limpiar
+            resolve();
+        };
+        
+        // Pequeño delay para evitar clics accidentales inmediatos
+        setTimeout(() => {
+            dom.imageViewer.addEventListener('click', closeHandler);
+        }, 500);
+    });
+}
+
 /** NUEVO: Función Maestra de Pausa */
 function togglePause(shouldPause) {
     if (shouldPause) {
@@ -448,6 +503,7 @@ function togglePause(shouldPause) {
         showModal(dom.pauseModal);
         // Detener loop del minijuego si estuviera activo (aunque ESC lo cierra, por seguridad)
         if (minigame.isActive) cancelAnimationFrame(minigame.loop);
+        pauseAllAudio(); // NUEVO
     } else {
         // REANUDAR
         hideModal(dom.pauseModal);
@@ -464,6 +520,7 @@ function togglePause(shouldPause) {
         isGamePaused = false;
         // Si el minijuego estaba activo, habría que reiniciarlo, pero por diseño ESC lo cierra.
         // Si implementas pausa SIN cerrar minijuegos, aquí reiniciarías el loop.
+        resumeAllAudio(); // NUEVO
     }
 }
 
@@ -528,10 +585,23 @@ export function promptForName(onConfirm) {
 
     const confirmAction = () => {
         const name = dom.nameInput.value.trim();
+        const compName = dom.companionInput.value.trim();
+        
+        // Validación: Jugador requerido
+        if (!name) {
+            dom.nameInput.classList.add('input-error');
+            setTimeout(() => dom.nameInput.classList.remove('input-error'), 500);
+            return;
+        }
+
         if (name) {
             setPlayerName(name);
+            setCompanionName(compName || "Rulo"); // Default Rulo
             dom.nameOverlay.classList.add('fade-out');
             setTimeout(() => dom.nameOverlay.classList.add('hidden'), 1500);
+            
+            // Iniciar Audio Ambiente
+            audioContext.bgm.play().catch(e => console.error(e));
             onConfirm();
         }
     };
@@ -577,8 +647,17 @@ function skipTyping() {
 
 /** Muestra un texto con efecto "typing" (ACTUALIZADO) */
 export async function addDialogue(text, speaker = '') {
-    // Si ya se está escribiendo, no hacer nada (previene doble clic)
-    if (isTyping && speaker !== 'Sistema' && speaker !== 'Sonido') return; 
+    // --- CORRECCIÓN: COLA DE DIÁLOGOS ---
+    // En lugar de cancelar si ya se escribe, esperamos a que termine el anterior.
+    while (isTyping) {
+        await wait(50);
+    }
+    // -------------------------------------
+
+    // Pausar diálogos si hay menús abiertos
+    while(activeModal || isGamePaused) {
+        await wait(100);
+    }
 
     const p = document.createElement('p');
     
@@ -610,6 +689,7 @@ export async function addDialogue(text, speaker = '') {
 
             return; // Retorna la promesa resuelta
         } else {
+            // Es el compañero u otro
             span.textContent = `${speaker}`;
         }
         p.appendChild(span);
@@ -617,22 +697,51 @@ export async function addDialogue(text, speaker = '') {
 
     const textSpan = document.createElement('span');
     textSpan.className = 'typing-cursor';
+    
+    // --- Efecto Tembloroso (Si Rulo tiene mucho miedo) ---
+    if (speaker === GAME_STATE.companionName && GAME_STATE.rulo.fear > 60) {
+        textSpan.classList.add('shaky-text');
+        // Durar solo unos segundos
+        setTimeout(() => {
+            if (textSpan) textSpan.classList.remove('shaky-text');
+        }, 3000);
+    }
+    
     p.appendChild(textSpan);
     dom.dialogueWindow.appendChild(p);
 
     // Lógica de "Typing"
     isTyping = true;
     forceSkipTyping = false;
+    let charCount = 0;
     
     // CORREGIDO: Añade los dos puntos y el espacio aquí
     const textToType = (speaker && speaker !== 'Sistema' && speaker !== 'Sonido') ? `: ${text}` : text;
     
     for (let i = 0; i < textToType.length; i++) {
+        
+        // Pausar typing si se abre menú
+        while(activeModal || isGamePaused) {
+            await wait(100);
+        }
+
         if (forceSkipTyping) {
             break; // Salir del bucle
         }
         textSpan.textContent += textToType[i];
         dom.dialogueWindow.scrollTop = dom.dialogueWindow.scrollHeight;
+        
+        // --- Lógica de Sonido de Typing ---
+        charCount++;
+        if (charCount % 2 === 0 && !isGamePaused) {
+             if (speaker === 'Tú') {
+                 playTypingSound(audioContext.typingP1);
+             } else {
+                 playTypingSound(audioContext.typingP2);
+             }
+        }
+        // ---------------------------------
+        
         await wait(TYPING_SPEED_MS);
     }
     
@@ -700,6 +809,15 @@ export function waitForItemUse(itemId) {
 }
 
 // --- Gestión de Estado y Datos ---
+
+/** Gestión de Nombre de Compañero */
+export function setCompanionName(name) {
+    GAME_STATE.companionName = name;
+    saveGame();
+}
+export function getCompanionName() {
+    return GAME_STATE.companionName || "Rulo";
+}
 
 /** Establece el nombre del jugador y lo guarda */
 export function setPlayerName(name) {
@@ -983,6 +1101,17 @@ function updateFearVignette(fearValue) {
     }
 }
 
+/** Efecto visual de daño */
+export function triggerDamageFlash() {
+    const overlay = dom.damageOverlay;
+    overlay.classList.remove('hidden');
+    overlay.classList.add('flash');
+    setTimeout(() => {
+        overlay.classList.remove('flash');
+        overlay.classList.add('hidden');
+    }, 500);
+}
+
 // --- NUEVO: Actualizador de UI en tiempo real ---
 function updateCooldownUI() {
     if (isGamePaused) return; // No actualizar visualmente si está pausado
@@ -1041,7 +1170,11 @@ export function renderInventory() {
         const div = document.createElement('div');
         div.className = 'inventory-item note-item';
         div.innerHTML = `<span>${note.name}</span>`;
-        div.onclick = () => showNoteReader(note.name, note.content);
+        div.onclick = async () => {
+            playAudio('Arrugar papel');
+            await wait(1000); // Espera a que termine el sonido
+            showNoteReader(note.name, note.content);
+        };
         dom.tabs.notes.appendChild(div);
     });
     
@@ -1173,21 +1306,70 @@ function applyConsumableEffect(stat, totalRestore, target = 'player') {
     }, tickRate);
 }
 
-/** Reproduce un sonido (y lo detiene opcionalmente) */
+/** AUDIO MANAGER EXTENDIDO */
+
+function playTypingSound(audioObj) {
+    // Resetear para solapamiento rápido
+    audioObj.currentTime = 0;
+    audioObj.play().catch(() => {});
+}
+
+/** Reproduce un sonido SFX puntual */
 export function playAudio(audioId, durationInSeconds = 0) {
-    const audio = audioCache[audioId];
-    if (audio) {
-        audio.currentTime = 0;
-        audio.play().catch(e => console.warn("Error al reproducir audio:", e));
-        
-        if (durationInSeconds > 0) {
-            setTimeout(() => {
-                audio.pause();
-            }, durationInSeconds * 1000);
-        }
-    } else {
-        console.error(`Audio no encontrado en cache: ${audioId}`);
+    // Mapeo simple a archivos si viene solo el nombre
+    let filename = audioId;
+    if (!audioId.endsWith('.mp3')) filename = audioId + '.mp3';
+    
+    let audio = audioContext.sfx[filename];
+    if (!audio) {
+        // Intentar cargarlo al vuelo
+        audio = new Audio(`../../../Assets/Audios/${filename}`);
+        audioContext.sfx[filename] = audio;
     }
+    
+    audio.currentTime = 0;
+    audio.play().catch(e => console.warn("Error audio:", e));
+    
+    if (durationInSeconds > 0) {
+        setTimeout(() => audio.pause(), durationInSeconds * 1000);
+    }
+}
+
+/** Lógica del latido de corazón */
+function checkHeartbeatAudio() {
+    if (GAME_STATE.player.fear > 90) {
+        if (audioContext.heartbeat.paused) audioContext.heartbeat.play().catch(() => {});
+        audioContext.heartbeat.volume = 1.0;
+    } else {
+        audioContext.heartbeat.pause();
+        audioContext.heartbeat.currentTime = 0;
+    }
+}
+
+/** Pausar todos los audios (Menú Pausa) */
+function pauseAllAudio() {
+    pausedAudioState = [];
+    
+    // BGM
+    if (!audioContext.bgm.paused) {
+        audioContext.bgm.pause();
+        pausedAudioState.push(audioContext.bgm);
+    }
+    // Heartbeat
+    if (!audioContext.heartbeat.paused) {
+        audioContext.heartbeat.pause();
+        pausedAudioState.push(audioContext.heartbeat);
+    }
+    
+    // SFX Loop? (Si hubiera loops de SFX, añadirlos aquí)
+}
+
+/** Reanudar audios */
+function resumeAllAudio() {
+    pausedAudioState.forEach(audio => {
+        audio.play().catch(() => {});
+    });
+    pausedAudioState = [];
 }
 
 /** Inicia la lógica de un minijuego */

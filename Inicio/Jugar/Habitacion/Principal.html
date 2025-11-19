@@ -13,10 +13,16 @@
 
     <div id="loading-overlay" class="overlay"></div>
 
+    <div id="damage-overlay" class="hidden"></div>
+    <div id="image-viewer" class="hidden"><div id="image-container"><img id="game-image" src="" alt="Game Image"><div class="blink-cursor">▼</div></div></div>
+
     <div id="name-input-overlay" class="overlay hidden">
         <div class="overlay-content">
-            <h1>Insertar Nombre</h1>
-            <input type="text" id="player-name-input" maxlength="20" placeholder="Escribe tu nombre...">
+            <h1>Registro:</h1>
+            <label>Nombre del Jugador</label>
+            <input type="text" id="player-name-input" maxlength="20" placeholder="Requerido...">
+            <label>NOMBRE DEL ACOMPAÑANTE</label>
+            <input type="text" id="companion-name-input" maxlength="20" placeholder="Opcional (Def: Rulo)">
             <button id="confirm-name-btn" class="ui-btn">Confirmar</button>
         </div>
     </div>
