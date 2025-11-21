@@ -36,6 +36,17 @@
             <button id="difficulty-back-button" class="menu-button">VOLVER</button>
         </div>
     </div>
+
+    <div id="name-select" class="screen-container" style="display: none;">
+        <h1>IDENTIFICACIÓN</h1>
+        <div class="input-wrapper">
+            <input type="text" id="input-player-name" class="menu-input" placeholder="NOMBRE JUGADOR *" maxlength="15" autocomplete="off">
+            <input type="text" id="input-companion-name" class="menu-input" placeholder="ACOMPAÑANTE (OPC)" maxlength="15" autocomplete="off">
+        </div>
+        <button id="start-game-final-button" class="menu-button">Confirmar</button>
+        <button id="name-back-button" class="menu-button">VOLVER</button>
+    </div>
+
     <div id="settings" class="screen-container" style="display: none;">
         <h1>AJUSTES</h1>
         
@@ -59,5 +70,35 @@
 
 
     <script src="Logica.js" type="module"></script>
+
+    <!-- NUEVO: Script para la música de fondo del menú -->
+    <script>
+        const menuAudio = new Audio('./Assets/Audios/Fondo.mp3');
+        const menuAudioVolume = 0.3; // Ajusta el volumen aquí (de 0.0 a 1.0)
+        const audioTimeKey = 'menu-audio-time';
+
+        menuAudio.loop = true;
+        menuAudio.volume = menuAudioVolume;
+
+        // Función para iniciar la música (requiere interacción del usuario)
+        const playMenuMusic = () => {
+            // Reanudar desde la posición guardada si existe
+            const savedTime = sessionStorage.getItem(audioTimeKey);
+            if (savedTime) {
+                menuAudio.currentTime = parseFloat(savedTime);
+            }
+            menuAudio.play().catch(e => console.log("El navegador requiere interacción para reproducir audio."));
+            // Una vez que la música empieza, ya no necesitamos este listener
+            document.body.removeEventListener('click', playMenuMusic);
+        };
+
+        // Guardar la posición del audio al salir de la página
+        window.addEventListener('beforeunload', () => {
+            sessionStorage.setItem(audioTimeKey, menuAudio.currentTime);
+        });
+
+        // Esperar a que el usuario haga clic en cualquier lugar para iniciar la música
+        document.body.addEventListener('click', playMenuMusic);
+    </script>
 </body>
 </html>

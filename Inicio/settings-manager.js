@@ -9,6 +9,9 @@ export const DEVICE_KEY = 'la-transmision-device';
 export const THEME_KEY = 'la-transmision-theme';
 // NUEVA CLAVE:
 export const DIFFICULTY_KEY = 'la-transmision-difficulty';
+// CLAVES DE NOMBRES:
+export const PLAYER_NAME_KEY = 'la-transmision-player-name';
+export const COMPANION_NAME_KEY = 'la-transmision-companion-name';
 
 // --- Paletas de Colores (Fuente de Verdad) ---
 // Exportamos los colores para que cualquier script pueda usarlos
@@ -97,6 +100,19 @@ export function setDifficulty(difficulty) {
 export function getDifficulty() {
     // Devuelve 'normal' por defecto si no hay nada guardado
     return localStorage.getItem(DIFFICULTY_KEY) || 'normal'; 
+}
+
+// --- NUEVAS FUNCIONES PARA NOMBRES ---
+export function setNames(playerName, companionName) {
+    localStorage.setItem(PLAYER_NAME_KEY, playerName);
+    localStorage.setItem(COMPANION_NAME_KEY, companionName);
+}
+
+export function getNames() {
+    return {
+        playerName: localStorage.getItem(PLAYER_NAME_KEY) || 'JUGADOR',
+        companionName: localStorage.getItem(COMPANION_NAME_KEY) || ''
+    };
 }
 
 // --- Función de Reseteo ---

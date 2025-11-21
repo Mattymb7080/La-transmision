@@ -10,7 +10,10 @@ import {
     getTheme,
     resetAllSettings,
     THEME_PALETTES,
-    setDifficulty // Importamos la nueva función
+    setDifficulty,
+    DIFFICULTY_KEY,
+    setNames,       // Importamos la función para guardar nombres
+    PLAYER_NAME_KEY // Importamos la clave para comprobar si ya existe un nombre
 } from './settings-manager.js';
 
 
@@ -22,6 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
         deviceSelect: document.getElementById('device-select'),
         mainMenu: document.getElementById('main-menu'),
         difficultySelect: document.getElementById('difficulty-select'), // Nueva pantalla
+        nameSelect: document.getElementById('name-select'), // Pantalla de nombres
         settings: document.getElementById('settings')
     };
 
@@ -39,10 +43,19 @@ document.addEventListener('DOMContentLoaded', () => {
         difficultyNormal: document.getElementById('difficulty-normal'),
         difficultyHard: document.getElementById('difficulty-hard'),
         difficultyNightmare: document.getElementById('difficulty-nightmare'),
-        difficultyBack: document.getElementById('difficulty-back-button')
+        difficultyBack: document.getElementById('difficulty-back-button'),
+
+        // Botones pantalla nombres
+        startGameFinal: document.getElementById('start-game-final-button'),
+        nameBack: document.getElementById('name-back-button')
     };
 
     const themeSelect = document.getElementById('theme-select');
+
+    const inputs = {
+        playerName: document.getElementById('input-player-name'),
+        companionName: document.getElementById('input-companion-name')
+    };
 
     // --- Funciones de Lógica de UI ---
 
@@ -90,16 +103,32 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     /**
-     * Guarda la dificultad y lanza el juego principal
+     * Guarda la dificultad y pasa a la selección de nombre
      * @param {string} difficulty ('easy', 'normal', 'hard', 'nightmare')
      */
-    function startGame(difficulty) {
+    function selectDifficulty(difficulty) {
         console.log('Dificultad seleccionada:', difficulty);
         setDifficulty(difficulty);
-        
-        // Redirige al juego principal (un nivel arriba)
+        // Ahora no inicia el juego, sino que muestra la pantalla de nombres
+        showScreen('nameSelect');
+    }
+
+    /**
+     * Valida nombres y lanza el juego real
+     */
+    function finalizeGameStart() {
+        const player = inputs.playerName.value.trim();
+        const companion = inputs.companionName.value.trim();
+
+        if (!player) {
+            alert("IDENTIFICACIÓN REQUERIDA: INGRESE NOMBRE DEL JUGADOR");
+            return;
+        }
+
+        setNames(player, companion);
         window.location.href = './Jugar/Habitacion/Principal.html';
     }
+
 
 
     // --- Configuración de Eventos (Listeners) ---
@@ -119,20 +148,37 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Menú Principal
     buttons.play.addEventListener('click', () => {
-        // Modificado: Ahora muestra la selección de dificultad
-        showScreen('difficultySelect');
+        // ¡AQUÍ ESTÁ EL CAMBIO!
+        // 1. Comprobamos si ya se ha guardado un nombre de jugador.
+        const savedPlayerName = localStorage.getItem(PLAYER_NAME_KEY);
+
+        if (savedPlayerName) {
+            // 2. Si existe, vamos directo al juego.
+            console.log('Datos de jugador encontrados. Cargando juego...');
+            // (Usamos la misma ruta que la función finalizeGameStart)
+            window.location.href = './Jugar/Habitacion/Principal.html';
+        } else {
+            // 3. Si no existe, mostramos la pantalla de selección de dificultad.
+            console.log('Primera vez jugando. Mostrando selección de dificultad.');
+            showScreen('difficultySelect');
+        }
     });
+
 
     buttons.settings.addEventListener('click', () => {
         showScreen('settings');
     });
     
     // Menú de Dificultad (NUEVO)
-    buttons.difficultyEasy.addEventListener('click', () => startGame('easy'));
-    buttons.difficultyNormal.addEventListener('click', () => startGame('normal'));
-    buttons.difficultyHard.addEventListener('click', () => startGame('hard'));
-    buttons.difficultyNightmare.addEventListener('click', () => startGame('nightmare'));
+    buttons.difficultyEasy.addEventListener('click', () => selectDifficulty('easy'));
+    buttons.difficultyNormal.addEventListener('click', () => selectDifficulty('normal'));
+    buttons.difficultyHard.addEventListener('click', () => selectDifficulty('hard'));
+    buttons.difficultyNightmare.addEventListener('click', () => selectDifficulty('nightmare'));
     buttons.difficultyBack.addEventListener('click', () => showScreen('mainMenu'));
+
+    // Menú de Nombres (NUEVO)
+    buttons.startGameFinal.addEventListener('click', finalizeGameStart);
+    buttons.nameBack.addEventListener('click', () => showScreen('difficultySelect'));
 
 
     // Menú de Ajustes
