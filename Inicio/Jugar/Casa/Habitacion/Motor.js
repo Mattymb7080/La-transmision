@@ -13,6 +13,8 @@ export class GameEngine {
             canMove: false, 
             collisionsEnabled: true,
             dialogCooldown: false, // Evita re-interacción inmediata
+            inspecting: false, // Nuevo estado para el overlay de imagen
+            readingNote: false, // Nuevo estado para leer notas
             activeMenu: null // 'status', 'inventory', null
         };
         
@@ -32,6 +34,14 @@ export class GameEngine {
             map: document.getElementById('game-map'),
             // Botón Hamburguesa
             menuBtn: document.querySelector('.menu-icon'), // Selector más seguro
+            
+            // Referencias Nuevas
+            inspectOverlay: document.getElementById('inspect-overlay'),
+            inspectImage: document.getElementById('inspect-image'),
+            inspectText: document.getElementById('inspect-text'),
+            noteOverlay: document.getElementById('note-overlay'),
+            noteContent: document.getElementById('note-content'),
+            
             dialogBox: document.getElementById('dialog-box'),
             logContainer: document.getElementById('game-log'), // Referencia al nuevo contenedor de abajo
             dialogText: document.getElementById('dialog-text'),
@@ -66,17 +76,19 @@ export class GameEngine {
             this.keys[key] = true;
 
             // Teclas de Acción
-            if (key === 'e' && !this.state.dialogCooldown) this.tryInteract();
+            if (key === 'e') this.handleInteractInput(); // Centralizamos la lógica de E
             if (key === 'q') this.toggleMenu('status');
             if (key === 'i') this.toggleMenu('inventory');
             if (key === 'escape') this.toggleMenu('pause'); // Placeholder para menú pausa
-            
-            // Avanzar diálogo
-            // (La lógica se maneja mejor por click como pediste)
         });
 
         window.addEventListener('keyup', (e) => {
             this.keys[e.key.toLowerCase()] = false;
+        });
+
+        // Opcional: Cerrar inspección con Click
+        this.dom.inspectOverlay.addEventListener('click', () => {
+            this.closeInspect();
         });
 
         // Click en Diálogo (Omitir / Avanzar)
@@ -110,19 +122,40 @@ export class GameEngine {
             });
         });
 
-        // INPUT "E" PARA SALTAR DIÁLOGO
-        window.addEventListener('keydown', (e) => {
-            if (e.key.toLowerCase() === 'e' && this.dom.dialogBox.classList.contains('active')) {
-                if (this.isTyping) this.skipTyping();
-                else this.advanceDialog();
-            }
-        });
     }
     
-    // Resetear cooldown al soltar la tecla
-    handleKeyUp(e) {
-        if (e.key.toLowerCase() === 'e') {
-             // Cooldown se resetea automáticamente por tiempo o lógica, pero aquí aseguramos
+    // --- Lógica Centralizada de Interacción [E] ---
+    handleInteractInput() {
+        // 1. Si está inspeccionando una imagen -> Cerrar
+        if (this.state.inspecting) {
+            this.closeInspect();
+            return;
+        }
+
+        // 2. Si está leyendo una nota -> Cerrar
+        if (this.state.readingNote) {
+            this.closeNoteView();
+            return;
+        }
+
+        // 3. Si hay un diálogo activo
+        if (this.dom.dialogBox.classList.contains('active')) {
+            if (this.isTyping) {
+                this.skipTyping(); // Omitir texto
+            } else {
+                this.advanceDialog(); // Cerrar/Avanzar
+            }
+            return;
+        }
+
+        // 4. Si hay un menú abierto (Inventario/Status) -> No hacer nada (o cerrarlo)
+        if (this.state.activeMenu) {
+            return;
+        }
+
+        // 5. Interacción Normal con el mundo
+        if (!this.state.dialogCooldown) {
+            this.tryInteract();
         }
     }
 
@@ -199,11 +232,18 @@ export class GameEngine {
         // Objetos
         for (let obj of this.currentScene.objects) {
             if (!obj.collision) continue;
+            
+            // Usamos la hitbox si existe, o el objeto completo si no
+            const hbX = obj.hitbox ? (obj.x + obj.hitbox.x) : obj.x;
+            const hbY = obj.hitbox ? (obj.y + obj.hitbox.y) : obj.y;
+            const hbW = obj.hitbox ? obj.hitbox.w : obj.w;
+            const hbH = obj.hitbox ? obj.hitbox.h : obj.h;
+
             // AABB Collision
-            if (pRect.x < obj.x + obj.w &&
-                pRect.x + pRect.w > obj.x &&
-                pRect.y < obj.y + obj.h &&
-                pRect.y + pRect.h > obj.y) {
+            if (pRect.x < hbX + hbW &&
+                pRect.x + pRect.w > hbX &&
+                pRect.y < hbY + hbH &&
+                pRect.y + pRect.h > hbY) {
                 return true;
             }
         }
@@ -217,7 +257,7 @@ export class GameEngine {
         // Centro del jugador
         const cx = this.playerPos.x + 20;
         const cy = this.playerPos.y + 70;
-        let closestDist = 120; // AUMENTADO MÁS para los muebles grandes
+        let closestDist = 80; // Distancia reducida para ser más preciso
         let target = null;
 
         this.currentScene.objects.forEach(obj => {
@@ -231,12 +271,25 @@ export class GameEngine {
 
             if (!obj.interaction) return;
 
-            // Calcular distancia desde el centro de los pies del jugador
-            const ox = obj.x + obj.w / 2; // Centro X objeto
-            const oy = obj.y + obj.h;     // Base Y objeto (más preciso para interacción)
+            // Calcular centro del HITBOX del objeto (no del sprite completo)
+            // obj.x/y es la posición visual, obj.hitbox es la colisión real si existe
+            let ox, oy;
+            
+            if (obj.hitbox) {
+                // Usar el centro del hitbox si está definido
+                ox = (obj.x + obj.hitbox.x) + (obj.hitbox.w / 2);
+                oy = (obj.y + obj.hitbox.y) + (obj.hitbox.h / 2);
+            } else {
+                // Fallback al objeto visual
+                ox = obj.x + obj.w / 2;
+                oy = obj.y + obj.h / 2; // Centrado verticalmente también para más consistencia
+            }
+
             const dist = Math.hypot(cx - ox, cy - oy);
 
-            if (dist < closestDist) {
+            // La distancia de interacción ahora es un poco más generosa que la mitad del ancho del objeto
+            const interactionRadius = (obj.hitbox ? obj.hitbox.w / 2 : obj.w / 2) + 40;
+            if (dist < interactionRadius && dist < closestDist) {
                 target = obj;
             }
         });
@@ -331,7 +384,7 @@ export class GameEngine {
             btn.className = 'decision-btn';
             btn.style.width = '100%';
             btn.innerText = `📄 ${note.title}`;
-            btn.onclick = () => alert(note.content); // Aquí abrirías un modal real de nota
+            btn.onclick = () => this.viewNote(note); // Usamos el nuevo visor
             li.appendChild(btn);
             listNotes.appendChild(li);
         });
@@ -356,6 +409,7 @@ export class GameEngine {
         this.dom.dialogBox.classList.add('active'); // Mostrar caja
         this.dom.dialogCursor.classList.remove('visible'); // Ocultar flecha
         this.dom.dialogText.innerHTML = ""; // Limpiar
+
         this.currentChoices = choices; // Guardar decisiones si hay
         this.fullText = "";
         
@@ -432,6 +486,51 @@ export class GameEngine {
     addItem(name) {
         this.state.items.push(name);
         this.addNotification(`+ ${name}`);
+    }
+
+    // --- NUEVO: Sistema de Inspección (Overlay) ---
+    showInspect(imageSrc, text) {
+        // Pausar movimiento
+        this.state.canMove = false;
+        this.state.inspecting = true;
+
+        // Configurar elementos
+        this.dom.inspectImage.style.backgroundImage = `url('${imageSrc}')`;
+        this.dom.inspectText.innerText = text.replace('{COMPANION}', this.names.companionName || 'Rulo');
+        
+        // Mostrar
+        this.dom.inspectOverlay.style.display = 'flex';
+    }
+
+    closeInspect() {
+        this.state.inspecting = false;
+        this.dom.inspectOverlay.style.display = 'none';
+        this.state.canMove = true;
+        // Pequeño cooldown para no re-abrir al instante
+        this.state.dialogCooldown = true;
+        setTimeout(() => { this.state.dialogCooldown = false; }, 300);
+    }
+
+    // --- NUEVO: Visor de Notas ---
+    viewNote(noteObj) {
+        this.state.canMove = false;
+        this.state.readingNote = true;
+        
+        // Formatear contenido (convierte saltos de línea en <br>)
+        const formattedContent = noteObj.content.replace(/\n/g, '<br>');
+
+        this.dom.noteContent.innerHTML = `
+            <h3>${noteObj.title}</h3>
+            <p>${formattedContent}</p>
+        `;
+        
+        this.dom.noteOverlay.style.display = 'flex';
+    }
+
+    closeNoteView() {
+        this.state.readingNote = false;
+        this.dom.noteOverlay.style.display = 'none';
+        // Si abrimos desde el menú, técnicamente el menú sigue abierto (no canMove)
     }
 
     addNote(title, content) {

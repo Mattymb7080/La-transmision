@@ -84,6 +84,8 @@ body {
 .sprite {
     position: absolute;
     image-rendering: pixelated; /* Crucial para Pixel Art */
+    /* transition: filter 0.2s;  Quitamos transición para evitar lag visual al mover */
+    transform-origin: bottom center; /* Pivote en los pies */
     transition: filter 0.2s; /* Para el efecto de hover */
 }
 
@@ -108,6 +110,7 @@ body {
 /* Icono de Interacción Flotante [E] */
 .interact-bubble {
     position: absolute;
+    top: -40px; /* Un poco más arriba */
     top: -30px;
     left: 50%;
     transform: translateX(-50%);
@@ -116,10 +119,12 @@ body {
     border: 1px solid var(--primary-color);
     padding: 2px 5px;
     font-size: 1rem;
+    /* animation: bounce 1.5s infinite; Eliminamos rebote para que sea más estable al leer */
     animation: bounce 1.5s infinite; /* Rebote más lento */
     z-index: 9999;
     pointer-events: none;
     white-space: nowrap;
+    box-shadow: 2px 2px 0 #000; /* Sombra para legibilidad */
 }
 @keyframes bounce { 0%, 100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, -5px); } }
 
@@ -139,9 +144,15 @@ body {
     border-radius: 4px;
     animation: bounce 1s infinite;
     z-index: 9999;
+    z-index: 20000; /* Asegurar que se vea sobre todo */
     pointer-events: none;
     white-space: nowrap;
     display: none; /* Oculto por defecto */
+    
+    /* Evitar que se salga de pantalla (Chapuza efectiva) */
+    max-width: 200px;
+    text-align: center;
+    box-shadow: 0 0 5px #000;
 }
 
 .sprite.interactive-highlight .interact-bubble {
@@ -158,43 +169,67 @@ body {
     max-width: 700px;
     height: 120px;
     background-color: #000;
+    background-color: rgba(0, 5, 0, 0.95);
+    border: 2px solid var(--primary-color);
     border: 4px double var(--primary-color);
     padding: 15px;
     color: #fff;
     font-size: 1.5rem;
     z-index: 9000; /* Muy por encima */
     display: none; /* Oculto por defecto */
+    box-shadow: 0 0 0 2px #000, 0 0 0 4px var(--primary-color); /* Doble borde retro */
     box-shadow: 0 0 20px rgba(0, 255, 0, 0.2);
+    flex-direction: column; /* Para que nombre y texto se apilen */
 }
 
 .rpg-dialog-box.active {
+    /* Ahora usamos 'flex' por defecto para que el contenido se alinee.
+       Para diálogos sin imagen, no hará diferencia visual. */
+    display: flex; 
+}
+
+
+/* --- Estilos para Retrato en Diálogo --- */
+
+/* Ocultamos el contenedor de la imagen por defecto */
+.dialog-portrait-container {
+    display: none;
+    margin-right: 15px;
+    flex-shrink: 0; /* Evita que la imagen se encoja */
+}
+
+/* Mostramos el contenedor solo cuando el diálogo tiene el retrato */
+.rpg-dialog-box.has-portrait .dialog-portrait-container {
     display: block;
+}
+
+.dialog-portrait {
+    width: 100px;
+    height: 100px;
+    object-fit: cover;
+    border: 2px solid var(--primary-color);
+    image-rendering: pixelated;
+}
+
+/* Nombre del que habla */
+.dialog-name {
+    position: absolute;
+    top: -18px;
+    left: 20px;
+    background-color: var(--primary-color);
+    color: #000;
+    padding: 0 10px;
+    font-weight: bold;
+    font-size: 1.2rem;
+    text-transform: uppercase;
+    box-shadow: 2px 2px 0 #000;
 }
 
 .dialog-text {
     margin: 0;
     line-height: 1.4;
-}
-
-/* Botones de Decisión en Diálogo */
-.decision-btn {
-    display: inline-block;
-    margin: 15px 20px 0 0;
-    padding: 10px 20px;
-    border: 1px solid var(--primary-color);
-    cursor: pointer;
-    background: #001100;
-    color: var(--primary-color);
-    font-family: var(--font-main);
-    font-size: 1.3rem;
-    text-transform: uppercase;
-    box-shadow: 0 0 5px rgba(51, 255, 0, 0.2);
-    transition: all 0.2s;
-}
-.decision-btn:hover {
-    background: var(--primary-color);
-    color: #000;
-    box-shadow: 0 0 15px var(--primary-color);
+    flex-grow: 1; /* Permite que el texto ocupe el espacio restante */
+    overflow-y: auto; /* Añade scroll si el texto es muy largo */
 }
 
 /* Cursor parpadeante para siguiente dialogo */
@@ -217,14 +252,122 @@ body {
     display: inline-block;
     margin: 10px 10px 0 0;
     padding: 5px 10px;
+    margin: 15px 15px 0 0;
+    padding: 8px 15px;
     border: 1px solid var(--primary-color);
     cursor: pointer;
     background: #001100;
     transition: all 0.2s;
+    background: #000;
+    color: var(--primary-color);
+    font-size: 1.2rem;
+    text-transform: uppercase;
+    transition: all 0.1s;
+    box-shadow: 2px 2px 0 var(--primary-color);
 }
 .decision-btn:hover {
     background: var(--primary-color);
     color: #000;
+    transform: translate(-1px, -1px);
+    box-shadow: 4px 4px 0 rgba(255, 255, 255, 0.3);
+}
+
+/* --- NUEVA INTERFAZ: INSPECCIÓN (Imagen Grande) --- */
+.inspect-overlay {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.95); /* Casi negro total */
+    background: #000;
+    z-index: 9600;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.inspect-image {
+    width: 80%;
+    height: 60%;
+    flex-grow: 1;
+    background-size: contain; /* O cover, según prefieras */
+    background-position: center;
+    background-repeat: no-repeat;
+    margin-bottom: 20px;
+    border: 2px solid var(--primary-color);
+    background-color: #000;
+    width: 100%;
+    margin-bottom: -100px; /* Para que el texto se solape un poco */
+}
+
+.inspect-text-container {
+    width: 80%;
+    text-align: center;
+    color: #fff;
+    height: 200px;
+    background: linear-gradient(to top, rgba(0,0,0,1) 20%, rgba(0,0,0,0.8) 70%, transparent 100%);
+    padding: 40px 40px 20px 40px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    text-shadow: 2px 2px 0 #000;
+}
+
+.inspect-text {
+    color: #fff;
+    font-size: 1.8rem;
+    margin: 0 0 10px 0;
+}
+
+.inspect-prompt {
+    font-size: 1rem;
+    color: var(--primary-color);
+    text-align: right;
+    animation: blink 1s infinite;
+}
+
+/* --- NUEVA INTERFAZ: VISOR DE NOTAS (Agenda) --- */
+.note-overlay {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.85);
+    z-index: 9700;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.note-paper {
+    width: 400px;
+    height: 500px;
+    background: #e3dac9; /* Color papel viejo */
+    color: #222; /* Tinta oscura */
+    padding: 40px;
+    font-family: 'Courier New', Courier, monospace; /* Fuente tipo máquina/mano */
+    box-shadow: 10px 10px 30px rgba(0,0,0,0.5);
+    position: relative;
+    transform: rotate(-2deg); /* Ligera inclinación natural */
+}
+
+#note-content h3 {
+    border-bottom: 2px solid #555;
+    padding-bottom: 10px;
+    margin-top: 0;
+    text-transform: uppercase;
+    font-weight: bold;
+}
+
+#note-content p {
+    font-size: 1.1rem;
+    line-height: 1.6;
+}
+
+.note-close-prompt {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    font-size: 0.8rem;
+    color: #666;
+    font-weight: bold;
 }
 /* --- Menús Superpuestos (Inventario / Estados) --- */
 .fullscreen-menu {
