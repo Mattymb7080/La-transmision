@@ -43,6 +43,7 @@ export class GameEngine {
             noteContent: document.getElementById('note-content'),
             
             dialogBox: document.getElementById('dialog-box'),
+            dialogName: document.getElementById('dialog-name'), // Referencia al nombre
             logContainer: document.getElementById('game-log'), // Referencia al nuevo contenedor de abajo
             dialogText: document.getElementById('dialog-text'),
             dialogCursor: document.getElementById('dialog-cursor'),
@@ -257,11 +258,13 @@ export class GameEngine {
         // Centro del jugador
         const cx = this.playerPos.x + 20;
         const cy = this.playerPos.y + 70;
-        let closestDist = 80; // Distancia reducida para ser más preciso
+        
+        // AUMENTAMOS la distancia de detección para simular las cajas blancas grandes
+        // sin afectar la colisión física (cajas moradas)
+        let interactRange = 90; 
         let target = null;
 
         this.currentScene.objects.forEach(obj => {
-            // Resetear highlights
             if (obj.domElement) {
                 obj.domElement.classList.remove('interactive-highlight');
                 // Remover burbujas antiguas
@@ -287,9 +290,7 @@ export class GameEngine {
 
             const dist = Math.hypot(cx - ox, cy - oy);
 
-            // La distancia de interacción ahora es un poco más generosa que la mitad del ancho del objeto
-            const interactionRadius = (obj.hitbox ? obj.hitbox.w / 2 : obj.w / 2) + 40;
-            if (dist < interactionRadius && dist < closestDist) {
+            if (dist < interactRange) {
                 target = obj;
             }
         });
@@ -401,7 +402,8 @@ export class GameEngine {
 
     // --- Sistema de Diálogo ---
 
-    showDialog(text, choices = null) {
+    // Ahora acepta un nombre opcional (si es null, usa "Tú" o no muestra nada)
+    showDialog(text, choices = null, speakerName = null) {
         // 1. Limpiar intervalo anterior si existía (CRÍTICO para evitar texto corrupto)
         if (this.currentTypingInterval) clearInterval(this.currentTypingInterval);
 
@@ -409,6 +411,15 @@ export class GameEngine {
         this.dom.dialogBox.classList.add('active'); // Mostrar caja
         this.dom.dialogCursor.classList.remove('visible'); // Ocultar flecha
         this.dom.dialogText.innerHTML = ""; // Limpiar
+
+        // Gestionar Nombre
+        if (speakerName) {
+            this.dom.dialogName.innerText = speakerName;
+            this.dom.dialogName.style.display = 'block';
+        } else {
+            // Si no hay nombre específico, usamos el del jugador por defecto o ocultamos
+            this.dom.dialogName.style.display = 'none';
+        }
 
         this.currentChoices = choices; // Guardar decisiones si hay
         this.fullText = "";

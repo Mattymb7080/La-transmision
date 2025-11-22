@@ -28,8 +28,24 @@
             <div id="eyelid-bottom" class="eyelid eyelid-bottom"></div>
 
             <div id="dialog-box" class="rpg-dialog-box">
+                <div id="dialog-name" class="dialog-name"></div>
                 <p id="dialog-text" class="dialog-text"></p>
                 <div id="dialog-cursor" class="dialog-next-cursor"></div>
+            </div>
+
+            <div id="inspect-overlay" class="inspect-overlay" style="display: none;">
+                <div id="inspect-image" class="inspect-image"></div>
+                <div class="inspect-text-container">
+                    <p id="inspect-text" class="inspect-text"></p>
+                    <div class="inspect-prompt">[E] CERRAR</div>
+                </div>
+            </div>
+
+            <div id="note-overlay" class="note-overlay" style="display: none;">
+                <div class="note-paper">
+                    <div id="note-content"></div>
+                    <div class="note-close-prompt">PRESIONA [E] PARA GUARDAR</div>
+                </div>
             </div>
 
             <div id="intro-overlay" class="fullscreen-menu" style="background:black; z-index:9500; display:none;"></div>

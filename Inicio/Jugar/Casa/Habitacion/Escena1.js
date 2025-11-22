@@ -8,8 +8,9 @@ const RoomScene = {
 
     start: (eng) => {
         // --- 1. Configurar Jugador ---
-        // Posición inicial (ACCOSTADO EN CAMA)
-        eng.playerPos = { x: 500, y: 400 }; // Un poco más centrado para no chocar al levantar
+        // Posición inicial (SOBRE LA CAMA, AJUSTADO)
+        // La cama está en X=550, Y=300. El jugador debe estar encima.
+        eng.playerPos = { x: 600, y: 350 }; 
         eng.updatePlayerSprite();
         // Visible pero rotado (acostado)
         eng.dom.player.style.opacity = '1'; 
@@ -36,32 +37,33 @@ const RoomScene = {
                     );
                 } else {
                     // LADO DERECHO: AGENDA
-                    // (Aquí iría la lógica de la agenda que ya tenías)
                     if (!e.state.flags.agenda) {
-                        // ... lógica de obtener agenda ...
                         e.state.flags.agenda = true;
                         e.addItem("Agenda Telefónica");
-                        e.showDialog("Conseguí la agenda. Ahora a buscar un teléfono.");
+                        e.showDialog("Conseguí la agenda. Ahora a buscar un teléfono.", null, "Objetivo");
                     } else {
-                         e.showDialog("Son las cosas de {COMPANION}. Mejor no husmear más.");
+                         e.showDialog("Son las cosas de {COMPANION}. Mejor no husmear más.", null, e.names.playerName);
                     }
                 }
            },
             0, // Rotación
-            { x: 10, y: 40, w: 280, h: 50 } // COLISIÓN: Solo la parte de abajo (patas)
+            // HITBOX (Morado): Solo la base
+            { x: 10, y: 50, w: 280, h: 40 } 
         );
 
-        // CAMA (Restaurada y Ajustada)
+        // CAMA (Asegurada dentro del mapa)
+        // Mapa es 800px ancho. Cama w=200. X debe ser < 600.
         createObject(eng, 'Cama', 
-            550, 350, // Posición ajustada para que no salga del mapa
+            550, 300, // Subida un poco para dejar espacio abajo
             200, 220, // Tamaño visual
             '../../../Assets/Imagenes/Cosas/Cama.png', 
             true, // Tiene colisión
             (e) => { 
-               e.showDialog("Solo polvo. Ya no creo en monstruos... creo.");
+               e.showDialog("Solo polvo. Ya no creo en monstruos... creo.", null, e.names.playerName);
             },
             180, 
-            { x: 10, y: 40, w: 180, h: 170 } // COLISIÓN: Un poco más pequeña que la imagen visual
+            // HITBOX (Morado): Dejamos que el jugador camine "sobre" la cabecera un poco
+            { x: 10, y: 60, w: 180, h: 150 } 
         );
 
         // ARMARIO (Pegado a la izquierda)
@@ -72,7 +74,7 @@ const RoomScene = {
             true,
             (e) => {
                 if(e.state.flags.armario) {
-                     e.showDialog("Solo ropa vieja.");
+                     e.showDialog("Solo ropa vieja.", null, "Armario");
                 } else {
                     e.state.flags.armario = true;
                     
@@ -82,19 +84,20 @@ const RoomScene = {
                     if (rand < 0.30) {
                         // 30% Agua
                         e.addItem("Botella de Agua");
-                        e.showDialog("Mamá siempre guarda cosas aquí. Encontré agua.");
+                        e.showDialog("Mamá siempre guarda cosas aquí. Encontré agua.", null, e.names.playerName);
                     } else if (rand < 0.70) {
                         // 40% Barra (0.30 a 0.70)
                         e.addItem("Barra de Cereal");
-                        e.showDialog("Mamá siempre guarda cosas aquí. Una barra de cereal, qué suerte.");
+                        e.showDialog("Una barra de cereal, qué suerte.", null, e.names.playerName);
                     } else {
                         // 30% Nada
-                        e.showDialog("Solo ropa vieja. Juraría que había guardado algo aquí.");
+                        e.showDialog("Solo ropa vieja. Juraría que había guardado algo aquí.", null, e.names.playerName);
                     }
                 }
             },
             -90, 
-            { x: 0, y: 180, w: 100, h: 100 } // COLISIÓN: Solo la base del armario
+            // HITBOX (Morado): Base pequeña
+            { x: 0, y: 220, w: 90, h: 60 } 
         );
 
 
@@ -106,31 +109,34 @@ const RoomScene = {
             120, 40, // Tamaño
             null, true, 
             (e) => {
-                // Mostrar "Auto" (Usando una imagen temporal, asegúrate de tener una imagen de auto o calle)
-                // Si no tienes imagen de auto, usa 'El miron.jpg' como placeholder o sube una.
-                e.showInspect('../../../Assets/Imagenes/El miron.jpg', "El auto de papá está listo. Están impacientes.");
+                // Interacción de Ventana: Ver calle/auto
+                e.showInspect('../../../Assets/Imagenes/El miron.jpg', "El auto de papá está encendido. Veo las luces reflejadas en el asfalto mojado.");
             },
             0,
             { x: 0, y: 0, w: 120, h: 40 }
         );
         
         // Luz de Ventana (Efecto Visual)
-        // Creamos un div amarillo semitransparente sobre el suelo frente a la ventana
-        createVisual(eng, 80, 480, 120, 100, 'linear-gradient(to bottom, rgba(255, 255, 200, 0.1), rgba(255, 255, 200, 0))', '');
-        createVisual(eng, 80, 580, 120, 20, '#2b3a42', ''); // Visual
+        createVisual(eng, 80, 460, 120, 100, 'linear-gradient(to bottom, rgba(200, 255, 255, 0.15), rgba(0,0,0,0))', '');
+        createVisual(eng, 80, 580, 120, 20, '#2b3a42', ''); // Visual marco
 
         // Puerta (PARED DERECHA VERTICAL - Salida Lateral)
-        // Ajustada posición más pegada a la pared derecha (X=780)
         createObject(eng, 'Puerta', 
-            760, 50, // Un poco más adentro para que se vea
-            20, 120, 
+            770, 50, // Un poco más adentro para que se vea
+            30, 120, 
             null, true, 
             (e) => {
-                if(!e.state.flags.agenda) e.showDialog("No puedo irme sin el número de Rulo.");
-                else e.showDialog("¿Debería salir ya?");
+                if(!e.state.flags.agenda) {
+                    e.showDialog("No puedo irme sin el número de Rulo. Prometí llamar.", null, e.names.playerName);
+                } else {
+                    e.showDialog("¿Debería salir ya?", [
+                        { text: "Sí, salir", callback: () => alert("FIN DE LA DEMO") },
+                        { text: "Aún no", callback: (eng) => eng.showDialog("Revisaré una vez más.", null, e.names.playerName) }
+                    ], "Puerta");
+                }
             },
             0,
-            { x: -10, y: 0, w: 30, h: 120 } // Hitbox un poco más ancha para facilitar click
+            { x: -10, y: 0, w: 40, h: 120 } 
         );
         createVisual(eng, 780, 50, 20, 120, '#5a3e36', ''); // Visual (Marco puerta)
 
@@ -141,6 +147,15 @@ const RoomScene = {
 };
 
 function createObject(eng, name, x, y, w, h, src, collision, interaction, rotation = 0, hitboxOverride = null) {
+    
+    // --- NUEVO: RESTRICCIÓN DE MAPA (CLAMPING) ---
+    // Aseguramos que el objeto nunca se dibuje fuera del canvas (800x600 aprox)
+    // Dejamos un margen de seguridad
+    if (x < 0) x = 0;
+    if (y < 0) y = 0;
+    if (x + w > 800) x = 800 - w;
+    if (y + h > 600) y = 600 - h;
+
     // 1. Elemento Visual (DOM)
     let el = null;
     if (src) {
