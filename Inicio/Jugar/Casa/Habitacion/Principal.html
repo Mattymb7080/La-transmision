@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>La Transmisión - Recámara</title>
+    <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="Estilos_Juego.css">
+</head>
+<body>
+    <div class="scanlines"></div>
+
+    <div class="game-interface">
+        
+        <header class="status-bar">
+            <div style="display:flex; align-items:center;">
+                <div class="menu-icon">☰</div>
+            </div>
+            <div id="header-state-box" class="header-status-box clickable-status">NORMAL</div>
+        </header>
+
+        <main id="game-view" class="game-view">
+            <div id="game-map">
+                <div id="player" class="character"></div>
+            </div>
+
+            <div id="eyelid-top" class="eyelid eyelid-top"></div>
+            <div id="eyelid-bottom" class="eyelid eyelid-bottom"></div>
+
+            <div id="dialog-box" class="rpg-dialog-box">
+                <p id="dialog-text" class="dialog-text"></p>
+                <div id="dialog-cursor" class="dialog-next-cursor"></div>
+            </div>
+
+            <div id="intro-overlay" class="fullscreen-menu" style="background:black; z-index:9500; display:none;"></div>
+        </main>
+
+        <aside class="log-panel">
+            <div id="notification-area">
+                <p style="color:#fff; border-bottom:1px solid #333; margin-bottom:5px;">OBJETIVO ACTUAL:</p>
+                <p id="objective-text" style="color: yellow; margin-bottom: 20px;">Despertar...</p>
+            </div>
+            
+            <div id="game-log" style="flex-grow: 1; overflow-y: auto; font-size: 0.9rem; color: #88ff88; border-top: 1px dashed #333; padding-top: 10px;">
+                <p style="color:#666">Sistema iniciado...</p>
+            </div>
+        </aside>
+
+        <footer class="footer-info">
+            <div id="location-text">UBICACIÓN: RECÁMARA</div>
+            <div>[Q] ESTADO | [I] INVENTARIO | [E] INTERACTUAR</div>
+        </footer>
+    </div>
+
+    <div id="status-menu" class="fullscreen-menu hidden">
+        <div class="menu-panel">
+            <div class="menu-title">BIO-MONITOR</div>
+            
+            <div class="status-row">
+                <span class="status-label">SALUD</span>
+                <div class="progress-container">
+                    <div id="bar-health" class="progress-bar" style="width: 100%; background: #ff3333;"></div>
+                    <span id="val-health" class="status-value">100</span>
+                </div>
+            </div>
+
+            <div class="status-row">
+                <span class="status-label">HAMBRE</span>
+                <div class="progress-container">
+                    <div id="bar-hunger" class="progress-bar" style="width: 0%; background: #ffa500;"></div>
+                    <span id="val-hunger" class="status-value">20</span>
+                </div>
+            </div>
+
+            <div class="status-row">
+                <span class="status-label">SED</span>
+                <div class="progress-container">
+                    <div id="bar-thirst" class="progress-bar" style="width: 0%; background: #00ccff;"></div>
+                    <span id="val-thirst" class="status-value">10</span>
+                </div>
+            </div>
+
+            <p style="margin-top:20px; color:#666;">PRESIONA [Q] PARA CERRAR</p>
+        </div>
+    </div>
+
+    <div id="inventory-menu" class="fullscreen-menu hidden">
+        <div class="menu-panel" style="width: 700px;">
+            <div class="menu-title">MOCHILA</div>
+            
+            <div class="tabs-header">
+                <button class="tab-btn active" data-tab="items">OBJETOS</button>
+                <button class="tab-btn" data-tab="notes">NOTAS</button>
+                <button class="tab-btn" data-tab="minigames">MINIJUEGOS</button>
+            </div>
+
+            <div id="tab-items" class="tab-content active">
+                <ul id="list-items" style="list-style:none; padding:0;"></ul>
+            </div>
+            <div id="tab-notes" class="tab-content">
+                <ul id="list-notes" style="list-style:none; padding:0;"></ul>
+            </div>
+            <div id="tab-minigames" class="tab-content">
+                <p>No hay minijuegos disponibles.</p>
+            </div>
+
+            <p style="margin-top:20px; color:#666;">PRESIONA [I] PARA CERRAR</p>
+        </div>
+    </div>
+
+    <script type="module" src="Motor.js"></script>
+    <script type="module" src="Escena1.js"></script>
+</body>
+</html>
