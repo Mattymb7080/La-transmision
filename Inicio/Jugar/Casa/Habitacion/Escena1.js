@@ -1,4 +1,4 @@
-/* Escena1.js */
+/* Escena1.js FINAL */
 import { GameEngine } from './Motor.js';
 
 const engine = new GameEngine();
@@ -7,156 +7,140 @@ const RoomScene = {
     objects: [],
 
     start: (eng) => {
-        // --- 1. Configurar Jugador ---
-        // Posición inicial (SOBRE LA CAMA, AJUSTADO)
-        // La cama está en X=550, Y=300. El jugador debe estar encima.
-        eng.playerPos = { x: 600, y: 350 }; 
+        // --- CONFIGURACIÓN INICIAL DEL JUGADOR (DURMIENDO) ---
+        // Empezamos en la cama (Coordenadas de la cama)
+        eng.playerPos = { x: 650, y: 420 }; // Más adentro de la cama
         eng.updatePlayerSprite();
-        // Visible pero rotado (acostado)
-        eng.dom.player.style.opacity = '1'; 
-        eng.dom.player.style.transform = `translate(${eng.playerPos.x}px, ${eng.playerPos.y}px) rotate(90deg)`;
-        eng.state.collisionsEnabled = false;
+        eng.dom.player.style.opacity = '1';
+        
+        // Rotamos al jugador para que parezca acostado
+        eng.dom.player.style.transform = `translate(${eng.playerPos.x}px, ${eng.playerPos.y}px) rotate(180deg)`;
+        
+        eng.state.collisionsEnabled = false; // Sin colisiones al despertar
+        eng.state.canMove = false; // No moverse aún
 
-        // --- 2. Crear Muebles ---
+        // --- PISO / LÍMITES (Referencia Visual) ---
+        createVisual(eng, 0, 0, 800, 600, '#1a1512', ''); 
 
-        // ESCRITORIO
+        // --- MUEBLES ---
+
+        // 1. ESCRITORIO (Arriba)
         createObject(eng, 'Escritorio', 
-            20, 40,  
-            300, 90, // AUMENTADO TAMAÑO VISUAL
+            250, 10, 250, 120, // Bajado un poco (Y=10)
             '../../../Assets/Imagenes/Cosas/Escritorio.png', 
             true,
             (e) => {
-                // Lógica dividida por posición del jugador
-                // El escritorio va de X=20 a X=320. Mitad = 170.
-                
-                if (e.playerPos.x < 170) {
-                    // LADO IZQUIERDO: FOTO
-                    e.showInspect(
-                        '../../../Assets/Imagenes/Cosas/Feria ciencias.png',
-                        "{COMPANION} y yo en 5to grado. Ganamos con la batería de papa."
-                    );
+                if (e.playerPos.x < 350) {
+                    // FOTO (Caja desvanecida mejorada)
+                    e.showInspect('../../../Assets/Imagenes/Cosas/Feria ciencias.png', "La foto de la feria... éramos felices.");
                 } else {
-                    // LADO DERECHO: AGENDA
+                    // AGENDA -> AHORA ES UNA NOTA
                     if (!e.state.flags.agenda) {
                         e.state.flags.agenda = true;
-                        e.addItem("Agenda Telefónica");
-                        e.showDialog("Conseguí la agenda. Ahora a buscar un teléfono.", null, "Objetivo");
+                        
+                        // AÑADIMOS NOTA DIRECTAMENTE (No objeto)
+                        e.addNote("Agenda de Rulo", "CONTACTOS:\n- Rulo: 555-0199\n- Casa: 555-4200\n\nNOTAS:\n'El código es mi año de nacimiento'.");
+                        
+                        e.updateObjective("Leer la Agenda (Presiona I -> Notas)");
+                        e.showDialog("Aquí esta, lo llamaré luego.", null, "{PLAYER}");
                     } else {
-                         e.showDialog("Son las cosas de {COMPANION}. Mejor no husmear más.", null, e.names.playerName);
+                         e.showDialog("Solo basura escolar.", null, "{PLAYER}");
                     }
                 }
            },
-            0, // Rotación
-            // HITBOX (Morado): Solo la base
-            { x: 10, y: 50, w: 280, h: 40 } 
+            0, { x: 10, y: 60, w: 230, h: 40 } // HITBOX AJUSTADA: Solo las patas/base, más pequeña
         );
 
-        // CAMA (Asegurada dentro del mapa)
-        // Mapa es 800px ancho. Cama w=200. X debe ser < 600.
-        createObject(eng, 'Cama', 
-            550, 300, // Subida un poco para dejar espacio abajo
-            200, 220, // Tamaño visual
-            '../../../Assets/Imagenes/Cosas/Cama.png', 
-            true, // Tiene colisión
-            (e) => { 
-               e.showDialog("Solo polvo. Ya no creo en monstruos... creo.", null, e.names.playerName);
-            },
-            180, 
-            // HITBOX (Morado): Dejamos que el jugador camine "sobre" la cabecera un poco
-            { x: 10, y: 60, w: 180, h: 150 } 
-        );
-
-        // ARMARIO (Pegado a la izquierda)
+        // 2. ARMARIO (Izquierda - Mirando a la derecha)
         createObject(eng, 'Armario', 
-            0, 250, // X=0 Pegado a pared izquierda
-            100, 280, // AUMENTADO TAMAÑO VISUAL
+            -10, 200, 100, 200, // Ajustado pegado a la pared
             '../../../Assets/Imagenes/Cosas/Armario.png',
             true,
             (e) => {
-                if(e.state.flags.armario) {
-                     e.showDialog("Solo ropa vieja.", null, "Armario");
-                } else {
+                 if (!e.state.flags.armario) {
                     e.state.flags.armario = true;
-                    
-                    // Lógica RNG (Probabilidades)
-                    const rand = Math.random();
-                    
-                    if (rand < 0.30) {
-                        // 30% Agua
-                        e.addItem("Botella de Agua");
-                        e.showDialog("Mamá siempre guarda cosas aquí. Encontré agua.", null, e.names.playerName);
-                    } else if (rand < 0.70) {
-                        // 40% Barra (0.30 a 0.70)
-                        e.addItem("Barra de Cereal");
-                        e.showDialog("Una barra de cereal, qué suerte.", null, e.names.playerName);
-                    } else {
-                        // 30% Nada
-                        e.showDialog("Solo ropa vieja. Juraría que había guardado algo aquí.", null, e.names.playerName);
-                    }
-                }
+                    e.addItem("Botella de Agua");
+                    e.showDialog("Encontré agua.", null, "{PLAYER}");
+                 } else {
+                    e.showDialog("Solo ropa vieja.", null, "{PLAYER}");
+                 }
             },
-            -90, 
-            // HITBOX (Morado): Base pequeña
-            { x: 0, y: 220, w: 90, h: 60 } 
+            -90, // ROTACIÓN CORRECTA: -90 grados (sentido antihorario) mira a la derecha
+            { x: 20, y: 0, w: 60, h: 200 } // HITBOX VERDE: Ajustada al cuerpo físico del mueble
         );
 
+        // 3. CAMA - ZONA 1 (Cuerpo/Cabecera - Textura)
+        createObject(eng, 'Cama', 
+            600, 400, 200, 200,   
+            '../../../Assets/Imagenes/Cosas/Cama.png', 
+            true, 
+            (e) => { 
+               // Aleatorio: Textura
+               const text = Math.random() < 0.5 
+                   ? "Las sábanas están frías y rasposas." 
+                   : "El colchón está duro, pero sirve.";
+               e.showDialog(text, null, "{PLAYER}");
+            },
+            0, 
+            { x: 20, y: 20, w: 160, h: 120 } // Hitbox: Parte superior y media
+        );
 
-        // INTERACTUABLES (Ventana y Puerta)
-        
-        // Ventana (Abajo Izquierda)
-        createObject(eng, 'Ventana', 
-            80, 560, // Posición
-            120, 40, // Tamaño
-            null, true, 
+        // 3.1 CAMA - ZONA 2 (Pies/Debajo - Invisible)
+        createObject(eng, 'Bajo Cama', 
+            600, 540, 200, 60, // Ubicado en la parte inferior de la cama
+            null, true, // Invisible pero colisionable
             (e) => {
-                // Interacción de Ventana: Ver calle/auto
-                e.showInspect('../../../Assets/Imagenes/El miron.jpg', "El auto de papá está encendido. Veo las luces reflejadas en el asfalto mojado.");
+                // Secuencia: Buscar y Monstruos
+                e.showDialog("Busqué debajo de la cama... solo hay polvo.", [
+                    { 
+                        text: "...", 
+                        callback: (eng2) => {
+                             eng2.showDialog("Ya no creo en monstruos... o eso creo.", null, "{PLAYER}");
+                        }
+                    }
+                ], "{PLAYER}");
             },
             0,
-            { x: 0, y: 0, w: 120, h: 40 }
+            { x: 20, y: 0, w: 160, h: 60 } // Hitbox: Parte inferior
         );
-        
-        // Luz de Ventana (Efecto Visual)
-        createVisual(eng, 80, 460, 120, 100, 'linear-gradient(to bottom, rgba(200, 255, 255, 0.15), rgba(0,0,0,0))', '');
-        createVisual(eng, 80, 580, 120, 20, '#2b3a42', ''); // Visual marco
 
-        // Puerta (PARED DERECHA VERTICAL - Salida Lateral)
+        // 4. VENTANA (Abajo - Pared Sur)
+        createObject(eng, 'Ventana', 
+            350, 580, 100, 20,    
+            null, true, 
+            (e) => {
+                e.showInspect('../../../Assets/Imagenes/El miron.jpg', "Siento que me observan...");
+            },
+            0, { x: 0, y: 0, w: 100, h: 20 }
+        );
+        createVisual(eng, 350, 595, 100, 5, '#88ccff', ''); 
+
+        // 5. PUERTA (Derecha)
         createObject(eng, 'Puerta', 
-            770, 50, // Un poco más adentro para que se vea
-            30, 120, 
+            780, 50, 20, 120, 
             null, true, 
             (e) => {
                 if(!e.state.flags.agenda) {
-                    e.showDialog("No puedo irme sin el número de Rulo. Prometí llamar.", null, e.names.playerName);
+                    e.showDialog("Necesito el número de Rulo.", null, "{PLAYER}");
                 } else {
-                    e.showDialog("¿Debería salir ya?", [
-                        { text: "Sí, salir", callback: () => alert("FIN DE LA DEMO") },
-                        { text: "Aún no", callback: (eng) => eng.showDialog("Revisaré una vez más.", null, e.names.playerName) }
-                    ], "Puerta");
+                    e.showDialog("¿Salir?", [
+                         { text: "Sí", callback: () => alert("FIN DEMO") },
+                         { text: "No", callback: (eng) => eng.advanceDialog() }
+                    ], "{PLAYER}");
                 }
             },
-            0,
-            { x: -10, y: 0, w: 40, h: 120 } 
+            0, { x: -10, y: 0, w: 30, h: 120 }
         );
-        createVisual(eng, 780, 50, 20, 120, '#5a3e36', ''); // Visual (Marco puerta)
+        createVisual(eng, 790, 50, 10, 120, '#5a3e36', '');
 
-
-        // --- 3. Secuencia de Inicio ---
+        // --- INICIAR SECUENCIA ---
         runIntro(eng);
     }
 };
 
-function createObject(eng, name, x, y, w, h, src, collision, interaction, rotation = 0, hitboxOverride = null) {
-    
-    // --- NUEVO: RESTRICCIÓN DE MAPA (CLAMPING) ---
-    // Aseguramos que el objeto nunca se dibuje fuera del canvas (800x600 aprox)
-    // Dejamos un margen de seguridad
-    if (x < 0) x = 0;
-    if (y < 0) y = 0;
-    if (x + w > 800) x = 800 - w;
-    if (y + h > 600) y = 600 - h;
+// --- FUNCIONES AUXILIARES ---
 
-    // 1. Elemento Visual (DOM)
+function createObject(eng, name, x, y, w, h, src, collision, interaction, rotation = 0, hitboxOverride = null) {
     let el = null;
     if (src) {
         el = document.createElement('div');
@@ -166,154 +150,68 @@ function createObject(eng, name, x, y, w, h, src, collision, interaction, rotati
         el.style.width = w + 'px';
         el.style.height = h + 'px';
         el.style.backgroundImage = `url('${src}')`;
-        el.style.backgroundSize = 'contain'; // Ajuste para que se vea entero
+        el.style.backgroundSize = 'contain'; 
         el.style.backgroundRepeat = 'no-repeat';
-        el.style.backgroundPosition = 'bottom center'; // Alinear abajo
+        el.style.backgroundPosition = 'center'; // Centrado
         if (rotation) el.style.transform = `rotate(${rotation}deg)`;
         eng.dom.map.appendChild(el);
     }
-    
-    // DEBUG: Descomenta esto si quieres ver las cajas rojas y entender por qué chocas
-    /*
-    const debug = document.createElement('div');
-    const hb = hitboxOverride || {x:0, y:0, w:w, h:h};
-    debug.style.position = 'absolute';
-    debug.style.border = '1px solid red';
-    debug.style.left = (x + hb.x) + 'px';
-    debug.style.top = (y + hb.y) + 'px';
-    debug.style.width = hb.w + 'px';
-    debug.style.height = hb.h + 'px';
-    eng.dom.map.appendChild(debug);
-    */
-
-    // 2. Lógica de Colisión (Hitbox separado)
-    // Si pasamos hitboxOverride, usamos eso. Si no, usamos el tamaño visual (w, h)
     const finalHitbox = hitboxOverride ? hitboxOverride : { x: 0, y: 0, w: w, h: h };
-
-    // 2. Lógica
-    eng.currentScene.objects.push({
-        name, x, y, w, h, 
-        collision, 
-        interaction, 
-        domElement: el,
-        hitbox: finalHitbox // Guardamos la hitbox para el Motor
-    });
-    
-    // DEBUG: Visualizar Hitbox (Opcional, descomentar para ver cajas rojas)
-    /*
-    const debugBox = document.createElement('div');
-    debugBox.style.position = 'absolute';
-    debugBox.style.left = (x + finalHitbox.x) + 'px';
-    debugBox.style.top = (y + finalHitbox.y) + 'px';
-    debugBox.style.width = finalHitbox.w + 'px';
-    debugBox.style.height = finalHitbox.h + 'px';
-    debugBox.style.border = '1px solid red';
-    debugBox.style.pointerEvents = 'none';
-    debugBox.style.zIndex = 9999;
-    eng.dom.map.appendChild(debugBox);
-    */
+    eng.currentScene.objects.push({ name, x, y, w, h, collision, interaction, domElement: el, hitbox: finalHitbox });
 }
 
-function createVisual(eng, x, y, w, h, color, labelText) {
+function createVisual(eng, x, y, w, h, color) {
     const el = document.createElement('div');
     el.style.position = 'absolute';
     el.style.left = x+'px'; el.style.top = y+'px';
     el.style.width = w+'px'; el.style.height = h+'px';
     el.style.background = color;
-    el.style.zIndex = 0; // Detrás
-    
-    // Texto indicador
-    if (labelText) {
-        const lbl = document.createElement('div');
-        lbl.className = 'visual-indicator';
-        lbl.innerText = labelText;
-        el.appendChild(lbl);
-    }
-    
+    el.style.zIndex = 0; 
     eng.dom.map.appendChild(el);
 }
 
 function runIntro(eng) {
     const gameView = document.getElementById('game-view');
-    
-    // 1. INICIO: Ojos cerrados
     gameView.classList.add('eyes-closed');
-    eng.state.canMove = false;
-    
-    if(typeof eng.updateHeaderState === 'function') {
-        eng.updateHeaderState('DURMIENDO', 'normal'); // Gris
-    }
-    
-    // SECUENCIA PROGRESIVA
+    eng.updateObjective("Despertar...");
+
     setTimeout(() => {
-        // 2. Fase 1: Apenas abre (oscuro)
         gameView.classList.remove('eyes-closed');
-        gameView.classList.add('blink-phase-1');
+        gameView.classList.add('eyes-open');
         
-        setTimeout(() => { 
-            // 3. Cierra otra vez
-            gameView.classList.remove('blink-phase-1');
-            gameView.classList.add('eyes-closed');
-            
-            setTimeout(() => { 
-                // 4. Fase 2: Abre más
-                gameView.classList.remove('eyes-closed');
-                gameView.classList.add('blink-phase-2');
-                
-                setTimeout(() => {
-                    // 5. Cierra ultima vez
-                    gameView.classList.remove('blink-phase-2');
-                    gameView.classList.add('eyes-closed');
-
-                    setTimeout(() => {
-                         // 6. ABRE TOTALMENTE (Clase eyes-open forza height 0)
-                         gameView.classList.remove('eyes-closed');
-                         gameView.classList.add('eyes-open');
-                         
-                         setTimeout(() => {
-                            eng.showDialog("Ugh... mi cabeza... ¿Qué hora es?", [
-                                { text: "Levantarse", callback: (e) => wakeUpSequence(e) },
-                                { text: "Dormir más", callback: (e) => { 
-                                    e.showDialog("No... tengo que buscar a Rulo.", [
-                                         { text: "Levantarse", callback: (eng2) => wakeUpSequence(eng2) }
-                                    ]); 
-                                }}
-                            ]);
-                         }, 1000);
-                    }, 1000);
-                }, 2000); 
-
-            }, 1500); 
-        }, 2000); 
-    }, 1000); // Tiempo inicial antes de empezar
+        // Diálogo inicial con callback para despertar
+        eng.showDialog("Ugh... mi cabeza...", [
+            { text: "Levantarse", callback: (e) => wakeUpSequence(e) }
+        ], "{PLAYER}");
+    }, 1500);
 }
 
+// --- SECUENCIA DE DESPERTAR ---
 function wakeUpSequence(eng) {
-    eng.addNotification("Te levantas de la cama."); 
+    eng.advanceDialog(); // Cerrar diálogo
     
-    // Animación de levantarse (Deslizarse a la izquierda y rotar)
-    const targetX = eng.playerPos.x - 100;
-    
-    // Usamos un intervalo simple para animar el movimiento
+    // Animación: Deslizarse a la izquierda (salir de la cama)
     let steps = 0;
     const interval = setInterval(() => {
-        eng.playerPos.x -= 5;
-        eng.updatePlayerSprite();
-        steps++;
+        eng.playerPos.x -= 4; // Mover a la izquierda
+        eng.playerPos.y -= 1; // Un poco arriba
+        eng.updatePlayerSprite(); // Actualizar posición pero manteniendo rotación (css transform lo maneja el motor, ojo aqui)
         
-        if (eng.playerPos.x <= targetX) {
+        // *Truco*: Como updatePlayerSprite resetea el transform, forzamos la rotación manualmente durante la animación
+        eng.dom.player.style.transform = `translate(${eng.playerPos.x}px, ${eng.playerPos.y}px) rotate(180deg)`;
+
+        steps++;
+        if (steps > 20) { // Menos pasos para que quede cerca de la cama (antes 40)
             clearInterval(interval);
             // Poner de pie
             eng.dom.player.style.transform = `translate(${eng.playerPos.x}px, ${eng.playerPos.y}px) rotate(0deg)`;
             
-            eng.updateObjective("Buscar Agenda Telefónica");
-            eng.updateHeaderState("NORMAL", "normal");
-
             eng.state.collisionsEnabled = true;
             eng.state.canMove = true;
+            eng.updateObjective("Buscar Agenda");
+            eng.addNotification("Te has levantado.");
         }
     }, 20);
 }
 
-// Inicializar
 engine.loadScene(RoomScene);

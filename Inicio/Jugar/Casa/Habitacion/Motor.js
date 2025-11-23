@@ -43,7 +43,8 @@ export class GameEngine {
             noteContent: document.getElementById('note-content'),
             
             dialogBox: document.getElementById('dialog-box'),
-            dialogName: document.getElementById('dialog-name'), // Referencia al nombre
+            dialogNameContainer: document.getElementById('dialog-name-container'), // Wrapper for the name tag
+            dialogNameTag: document.getElementById('dialog-name-tag'), // The actual name tag
             logContainer: document.getElementById('game-log'), // Referencia al nuevo contenedor de abajo
             dialogText: document.getElementById('dialog-text'),
             dialogCursor: document.getElementById('dialog-cursor'),
@@ -80,6 +81,14 @@ export class GameEngine {
             if (key === 'e') this.handleInteractInput(); // Centralizamos la lógica de E
             if (key === 'q') this.toggleMenu('status');
             if (key === 'i') this.toggleMenu('inventory');
+            
+            // Atajos de Inventario
+            if (this.state.activeMenu === 'inventory') {
+                if (key === '1') this.switchTab('items');
+                if (key === '2') this.switchTab('notes');
+                if (key === '3') this.switchTab('minigames');
+            }
+
             if (key === 'escape') this.toggleMenu('pause'); // Placeholder para menú pausa
         });
 
@@ -90,6 +99,21 @@ export class GameEngine {
         // Opcional: Cerrar inspección con Click
         this.dom.inspectOverlay.addEventListener('click', () => {
             this.closeInspect();
+        });
+
+        // CLICK OUTSIDE (Cerrar Menús al hacer click en el fondo)
+        this.dom.inventoryMenu.addEventListener('click', (e) => {
+            if(e.target === this.dom.inventoryMenu) this.toggleMenu('inventory');
+        });
+        this.dom.statusMenu.addEventListener('click', (e) => {
+            if(e.target === this.dom.statusMenu) this.toggleMenu('status');
+        });
+
+        // Cerrar visor de notas con click en el overlay o en el botón de cerrar
+        this.dom.noteOverlay.addEventListener('click', (e) => {
+            if (e.target === this.dom.noteOverlay || e.target.classList.contains('close-note-btn')) {
+                this.closeNoteView();
+            }
         });
 
         // Click en Diálogo (Omitir / Avanzar)
@@ -114,15 +138,25 @@ export class GameEngine {
         // Lógica de Pestañas Inventario
         document.querySelectorAll('.tab-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
-                // Remover activo de todos
-                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-                // Activar clickeado
-                e.target.classList.add('active');
-                document.getElementById(`tab-${e.target.dataset.tab}`).classList.add('active');
+                this.switchTab(e.target.dataset.tab);
             });
         });
 
+    }
+
+    switchTab(tabName) {
+        // Remover activo de todos
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        
+        // Activar el seleccionado
+        const btn = document.querySelector(`.tab-btn[data-tab="${tabName}"]`);
+        const content = document.getElementById(`tab-${tabName}`);
+        
+        if(btn && content) {
+            btn.classList.add('active');
+            content.classList.add('active');
+        }
     }
     
     // --- Lógica Centralizada de Interacción [E] ---
@@ -255,6 +289,21 @@ export class GameEngine {
         // Evitar crash si no hay escena cargada
         if (!this.currentScene) return;
 
+        // 1. LIMPIEZA PREVENTIVA: Borrar burbujas y highlights viejos siempre al inicio del frame.
+        this.currentScene.objects.forEach(obj => {
+            if (obj.domElement) {
+                obj.domElement.classList.remove('interactive-highlight');
+                const bubble = obj.domElement.querySelector('.interact-bubble');
+                if(bubble) bubble.remove();
+            }
+        });
+
+        // 2. BLOQUEO: Si hay dialogo activo, un menú, o el jugador no se puede mover, NO calcular proximidad.
+        if (this.dom.dialogBox.classList.contains('active') || this.state.activeMenu || !this.state.canMove) {
+            this.currentTarget = null; // Asegurarse que no haya un objetivo guardado
+            return;
+        }
+
         // Centro del jugador
         const cx = this.playerPos.x + 20;
         const cy = this.playerPos.y + 70;
@@ -265,13 +314,6 @@ export class GameEngine {
         let target = null;
 
         this.currentScene.objects.forEach(obj => {
-            if (obj.domElement) {
-                obj.domElement.classList.remove('interactive-highlight');
-                // Remover burbujas antiguas
-                const bubble = obj.domElement.querySelector('.interact-bubble');
-                if(bubble) bubble.remove();
-            }
-
             if (!obj.interaction) return;
 
             // Calcular centro del HITBOX del objeto (no del sprite completo)
@@ -360,35 +402,57 @@ export class GameEngine {
     }
 
     updateInventoryUI() {
-        // Objetos
+        // --- 1. Pestaña OBJETOS ---
         const listItems = document.getElementById('list-items');
         listItems.innerHTML = '';
-        if (this.state.items.length === 0) listItems.innerHTML = '<li>(Vacío)</li>';
         
-        this.state.items.forEach(item => {
-            const li = document.createElement('li');
-            li.style.margin = '10px 0';
-            li.innerHTML = `📦 ${item} <button class="decision-btn" style="font-size:0.8rem">USAR</button>`;
-            listItems.appendChild(li);
-        });
+        if (this.state.items.length === 0) {
+            listItems.innerHTML = '<p class="empty-msg">Mochila vacía.</p>';
+        } else {
+            this.state.items.forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'inventory-item';
+                div.innerHTML = `<span class="item-name">${item}</span>`;
+                
+                const btn = document.createElement('button');
+                btn.className = 'item-use-btn';
+                btn.innerText = "USAR";
+                btn.onclick = () => {
+                    if(item === "Botella de Agua") {
+                        this.toggleMenu('inventory');
+                        this.showDialog("Glup, glup...", null, "{PLAYER}");
+                        // Aquí podrías reducir sed
+                    } else {
+                        alert("No se puede usar aquí.");
+                    }
+                };
+                div.appendChild(btn);
+                listItems.appendChild(div);
+            });
+        }
 
-        // Notas
+        // --- 2. Pestaña NOTAS (Aquí va la Agenda) ---
         const listNotes = document.getElementById('list-notes');
         listNotes.innerHTML = '';
-        if (this.state.notes.length === 0) listNotes.innerHTML = '<li>(Sin Notas)</li>';
 
-        this.state.notes.forEach(note => {
-            const li = document.createElement('li');
-            li.style.margin = '10px 0';
-            // Botón para abrir nota
-            const btn = document.createElement('button');
-            btn.className = 'decision-btn';
-            btn.style.width = '100%';
-            btn.innerText = `📄 ${note.title}`;
-            btn.onclick = () => this.viewNote(note); // Usamos el nuevo visor
-            li.appendChild(btn);
-            listNotes.appendChild(li);
-        });
+        if (this.state.notes.length === 0) {
+            listNotes.innerHTML = '<p class="empty-msg">(Sin notas)</p>';
+        } else {
+            this.state.notes.forEach(note => {
+                const div = document.createElement('div');
+                div.className = 'inventory-item'; // Reusamos estilo
+                div.innerHTML = `<span class="item-name">📄 ${note.title}</span>`;
+                
+                const btn = document.createElement('button');
+                btn.className = 'item-use-btn';
+                btn.innerText = "LEER"; // Etiqueta correcta
+                btn.onclick = () => {
+                    this.viewNote(note); // Abrir visor
+                };
+                div.appendChild(btn);
+                listNotes.appendChild(div);
+            });
+        }
     }
 
     // --- FUNCIÓN RECUPERADA ---
@@ -402,29 +466,32 @@ export class GameEngine {
 
     // --- Sistema de Diálogo ---
 
-    // Ahora acepta un nombre opcional (si es null, usa "Tú" o no muestra nada)
     showDialog(text, choices = null, speakerName = null) {
-        // 1. Limpiar intervalo anterior si existía (CRÍTICO para evitar texto corrupto)
         if (this.currentTypingInterval) clearInterval(this.currentTypingInterval);
 
         this.state.canMove = false;
-        this.dom.dialogBox.classList.add('active'); // Mostrar caja
-        this.dom.dialogCursor.classList.remove('visible'); // Ocultar flecha
-        this.dom.dialogText.innerHTML = ""; // Limpiar
+        this.dom.dialogBox.classList.add('active');
+        this.dom.dialogCursor.classList.remove('visible');
+        this.dom.dialogText.innerHTML = ""; 
 
-        // Gestionar Nombre
+        // LOGICA DE NOMBRE
+        const nameContainer = document.getElementById('dialog-name-container');
+        const nameTag = document.getElementById('dialog-name-tag');
+
         if (speakerName) {
-            this.dom.dialogName.innerText = speakerName;
-            this.dom.dialogName.style.display = 'block';
+            nameContainer.style.display = 'block';
+            // Reemplazar {PLAYER} por el nombre real guardado
+            let finalName = speakerName.replace('{PLAYER}', this.names.playerName || 'JUGADOR')
+                                       .replace('{COMPANION}', this.names.companionName || 'Rulo');
+            nameTag.innerText = finalName;
         } else {
-            // Si no hay nombre específico, usamos el del jugador por defecto o ocultamos
-            this.dom.dialogName.style.display = 'none';
+            // Si por alguna razón es null, ocultar (aunque ahora todo tiene nombre)
+            nameContainer.style.display = 'none';
         }
 
-        this.currentChoices = choices; // Guardar decisiones si hay
-        this.fullText = "";
+        this.currentChoices = choices;
         
-        // Procesar nombres
+        // Reemplazar variables en el texto
         this.fullText = text.replace('{PLAYER}', this.names.playerName || 'Tú')
                             .replace('{COMPANION}', this.names.companionName || 'Rulo');
         
@@ -527,12 +594,11 @@ export class GameEngine {
         this.state.canMove = false;
         this.state.readingNote = true;
         
-        // Formatear contenido (convierte saltos de línea en <br>)
-        const formattedContent = noteObj.content.replace(/\n/g, '<br>');
-
+        // Usamos innerHTML para inyectar estructura
         this.dom.noteContent.innerHTML = `
-            <h3>${noteObj.title}</h3>
-            <p>${formattedContent}</p>
+            <button class="close-note-btn">X</button>
+            <h2 class="note-title">${noteObj.title}</h2>
+            <div class="note-body">${noteObj.content}</div>
         `;
         
         this.dom.noteOverlay.style.display = 'flex';
@@ -541,12 +607,12 @@ export class GameEngine {
     closeNoteView() {
         this.state.readingNote = false;
         this.dom.noteOverlay.style.display = 'none';
-        // Si abrimos desde el menú, técnicamente el menú sigue abierto (no canMove)
+        this.state.canMove = !this.state.activeMenu; // Solo permite mover si no hay otro menú abierto
     }
 
     addNote(title, content) {
         this.state.notes.push({ title, content });
-        this.addNotification(`+ Nota: ${title}`);
+        this.addNotification(`Nota añadida: ${title}`);
     }
 
     // --- FUNCIÓN QUE FALTABA (CRÍTICO) ---
